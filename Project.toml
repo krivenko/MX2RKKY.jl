@@ -3,8 +3,18 @@ uuid = "72e1c527-8a46-4567-9268-d70aedf73814"
 authors = ["Igor Krivenko <iskrivenko@proton.me> and contributors"]
 version = "0.1.0-DEV"
 
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+
 [compat]
 julia = "1.8"
+Test = "1"
+Aqua = "0.8.0"
+SpecialFunctions = "2.0.0"
+LinearAlgebra = "1.0.0"
+Random = "1.0.0"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
