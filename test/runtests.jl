@@ -10,8 +10,8 @@ using Aqua
 
     @testset "Lattice" begin
         L1, L2 = 3, 4
-        @test MX2RKKY.neighbors((1, 1), L1, L2) ==
-              [(2, 1), (3, 1), (1, 2), (1, 4), (2, 2), (3, 4)]
+        @test MX2RKKY.neighbors((0, 0), L1, L2) ==
+              [(1, 0), (0, 3), (2, 3), (2, 0), (0, 1), (1, 1)]
     end
 
     @testset "Configuration" begin
@@ -48,6 +48,30 @@ using Aqua
         V = MX2RKKY.make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ, renormalize=false)
         MX2RKKY.rkky_energy_term(conf, i, V)
         MX2RKKY.rkky_energy(conf, V)
+    end
+
+    @testset "MCSimulation" begin
+        L1 = 10
+        L2 = 15
+
+        rng = MersenneTwister(123456)
+        conf = Configuration(L1, L2, rng, inplane=true)
+
+        β = 10.0
+        Jpar = 2.0
+        Jperp = 0.0
+        Vpar = 0.1
+        Vperp = 0.0
+        λ = 0.1
+
+        sim = MCSimulation(conf, β=β, Jpar=Jpar, Jperp=Jperp,
+                           Vpar=Vpar, Vperp=Vperp, λ=λ, Vrenormalize=false)
+
+        run!(sim, n_cycles=500, n_warmup_cycles=100, cycle_length=50, inplane=true)
+
+        @show acceptance_rates(sim)
+        @show avg_energy(sim)
+        @show avg_chirality(sim)
     end
 
 end
