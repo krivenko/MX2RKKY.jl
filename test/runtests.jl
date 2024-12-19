@@ -71,7 +71,9 @@ using Aqua
 
         @show acceptance_rates(sim)
         @show avg_energy(sim)
+        @show var_energy(sim)
         @show avg_chirality(sim)
+        @show var_chirality(sim)
     end
 
 end

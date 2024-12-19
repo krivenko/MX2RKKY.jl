@@ -7,7 +7,8 @@ using Random: AbstractRNG, MersenneTwister, rand
 using StatsBase: sample, Weights
 using ProgressMeter: @showprogress
 
-export Configuration, MCSimulation, run!, acceptance_rates, avg_energy, avg_chirality
+export Configuration, MCSimulation, run!, acceptance_rates
+export avg_energy, var_energy, avg_chirality, var_chirality
 
 #
 # Triangular lattice
@@ -282,9 +283,13 @@ mutable struct Measurements
     count::Int
     "Accumulated energy of the system (unnormalized)"
     energy::Float64
+    "Accumulated energy squared"
+    energy2::Float64
     "Accumulated chirality (unnormalized)"
     chirality::Float64
-    Measurements() = new(0, .0, .0)
+    "Accumulated chirality squared"
+    chirality2::Float64
+    Measurements() = new(0, .0, .0, .0, .0)
 end
 
 "State of a Monte Carlo simulation"
@@ -393,21 +398,24 @@ end
 function measure!(sim::MCSimulation)
     sim.measurements.count += 1
     sim.measurements.energy += sim.energy
+    sim.measurements.energy2 += sim.energy^2
 
     # Chirality
     L1, L2 = size(sim.conf)
     L = L1 * L2
-    sim.measurements.chirality += sum(eachindex(sim.conf)) do i
+    χ = sum(eachindex(sim.conf)) do i
         hn = hexagon_nodes(i, L1, L2)
         ϕ1 = sim.conf.ϕ[hn[1]...]
         ϕ2 = sim.conf.ϕ[hn[2]...]
         ϕ3 = sim.conf.ϕ[hn[3]...]
-        χ = -(clampΔφ(ϕ2 - ϕ1) + clampΔφ(ϕ3 - ϕ2) + clampΔφ(ϕ1 - ϕ3)) / (2π)
-        @assert (isapprox(χ, -1, atol=1e-10) ||
-                 isapprox(χ, 0, atol=1e-10) ||
-                 isapprox(χ, 1, atol=1e-10))
-        return χ
+        χi = -(clampΔφ(ϕ2 - ϕ1) + clampΔφ(ϕ3 - ϕ2) + clampΔφ(ϕ1 - ϕ3)) / (2π)
+        @assert (isapprox(χi, -1, atol=1e-10) ||
+                 isapprox(χi, 0, atol=1e-10) ||
+                 isapprox(χi, 1, atol=1e-10))
+        return χi
     end / L
+    sim.measurements.chirality += χ
+    sim.measurements.chirality2 += χ^2
 end
 
 mutable struct UpdateSingleSpin{Bool}
@@ -476,7 +484,19 @@ end
 "Extract average energy of the system from a simulation structure."
 avg_energy(sim::MCSimulation) = sim.measurements.energy / sim.measurements.count
 
+"Extract variance of energy from a simulation structure."
+function var_energy(sim::MCSimulation)
+    E_avg = avg_energy(sim)
+    return sqrt((sim.measurements.energy2 / sim.measurements.count) - E_avg^2)
+end
+
 "Extract average chirality from a simulation structure."
 avg_chirality(sim::MCSimulation) = sim.measurements.chirality / sim.measurements.count
+
+"Extract variance of chirality from a simulation structure."
+function var_chirality(sim::MCSimulation)
+    χ_avg = avg_chirality(sim)
+    return sqrt((sim.measurements.chirality2 / sim.measurements.count) - χ_avg^2)
+end
 
 end # module MX2RKKY
