@@ -5,7 +5,7 @@ using LinearAlgebra: dot
 using SpecialFunctions: besselj0, besselj1, bessely0, bessely1
 using Random: AbstractRNG, MersenneTwister, rand
 using StatsBase: sample, Weights
-using ProgressBars: ProgressBar
+using ProgressMeter: @showprogress
 
 export Configuration, MCSimulation, run!, acceptance_rates, avg_energy, avg_chirality
 
@@ -366,7 +366,7 @@ function run!(sim::MCSimulation;
     push!(sim.updates, UpdateSingleSpin(inplane))
     update_weights = [1.0]
 
-    for cycle in ProgressBar(1:(n_warmup_cycles + n_cycles))
+    @showprogress for cycle in 1:(n_warmup_cycles + n_cycles)
         for step in 1:cycle_length
             # Metropolis-Hastings criterion
             update_i = sample(sim.rng, Weights(update_weights))
