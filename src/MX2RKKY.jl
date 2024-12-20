@@ -70,10 +70,10 @@ end
 struct Configuration
     "Length of the spin vectors"
     S::Float64
-    "Azimuthal angles of the spins"
-    ϕ::OffsetArray{Float64, 2}
     "Polar angles of the spins"
     θ::OffsetArray{Float64, 2}
+    "Azimuthal angles of the spins"
+    ϕ::OffsetArray{Float64, 2}
     """
     Cartesian components of the spins S_{α,i1,i2}, α = x,y,z.
     i1 and i2 are integer coordinates of the spin on the cluster.
@@ -91,7 +91,7 @@ function Configuration(L1::Int, L2::Int; S::Float64 = 1.0)
     θ = OffsetArray(fill(π / 2, L1, L2), Origin(0))
     ϕ = OffsetArray(fill(.0, L1, L2), Origin(0))
     S_vec = [S * n[α] for α in 1:3, n in sph2cart.(θ, ϕ)]
-    return Configuration(S, ϕ, θ, OffsetArray(S_vec, Origin(1, 0, 0)))
+    return Configuration(S, θ, ϕ, OffsetArray(S_vec, Origin(1, 0, 0)))
 end
 
 """
@@ -106,7 +106,7 @@ function Configuration(L1::Int, L2::Int, rng::AbstractRNG;
     θ = OffsetArray(inplane ? fill(π / 2, L1, L2) : (π * rand(rng, L1, L2)), Origin(0))
     ϕ = OffsetArray(2π * rand(rng, L1, L2), Origin(0))
     S_vec = [S * n[α] for α in 1:3, n in sph2cart.(θ, ϕ)]
-    return Configuration(S, ϕ, θ, OffsetArray(S_vec, Origin(1, 0, 0)))
+    return Configuration(S, θ, ϕ, OffsetArray(S_vec, Origin(1, 0, 0)))
 end
 
 "Extract linear sizes (L1, L2) of the cluster from a configuration"
@@ -114,6 +114,20 @@ Base.size(conf::Configuration) = size(conf.S_vec)[2:3]
 
 "Iterate over all integer coordinates of nodes in the cluster from a configuration"
 Base.eachindex(conf::Configuration) = Base.product(axes(conf.S_vec, 2), axes(conf.S_vec, 3))
+
+"
+Update a single spin in a configuration.
+
+`conf` - configuration to be updated.
+`i` - integer coordinates of the spin.
+`θ` - new polar angle of the spin.
+`ϕ` - new azimuthal angle of the spin.
+"
+@inline function update_spin!(conf::Configuration, i::IntCoords, θ::Float64, ϕ::Float64)
+    conf.θ[i...] = θ
+    conf.ϕ[i...] = ϕ
+    conf.S_vec[:, i...] = conf.S * collect(sph2cart(θ, ϕ))
+end
 
 #
 # Heisenberg XXZ model
@@ -294,6 +308,9 @@ mutable struct Measurements
     Measurements() = new(0, Inf, .0, .0, .0, .0)
 end
 
+"Base type of Monte Carlo updates"
+abstract type AbstractUpdate end
+
 "State of a Monte Carlo simulation"
 mutable struct MCSimulation
     "Inverse temperature"
@@ -313,7 +330,7 @@ mutable struct MCSimulation
     "Pseudo-random number generator"
     rng::MersenneTwister
     "Monte Carlo updates"
-    updates::Vector
+    updates::Vector{AbstractUpdate}
     "Number of proposed updates of each type"
     n_proposed::Vector{Int}
     "Number of accepted updates of each type"
@@ -341,7 +358,7 @@ function MCSimulation(init_conf::Configuration;
                         init_conf,
                         OffsetArray(energy_per_node, Origin(0)), energy,
                         MersenneTwister(),
-                        [], zeros(Int, 1), zeros(Int, 1),
+                        [], zeros(Int, 2), zeros(Int, 2),
                         Measurements())
 end
 
@@ -354,11 +371,13 @@ Run Monte Carlo simulation.
 `cycle_length` - Number of MC updates per cycle.
 `seed` - seed to initialize the PRNG.
 `inplane` - Update only the azimuthal angles of the spins.
+`update_hexagon_prob` - Proposal probability of UpdateHexagon.
 """
 function run!(sim::MCSimulation;
               n_cycles::Int, n_warmup_cycles::Int, cycle_length::Int = 100,
               seed::Union{Int, Nothing} = nothing,
-              inplane::Bool = true)
+              inplane::Bool = true,
+              update_hexagon_prob::Float64 = .0)
     @assert n_cycles > 0
     @assert n_warmup_cycles > 0
     @assert cycle_length > 0
@@ -371,7 +390,8 @@ function run!(sim::MCSimulation;
     # Markov chain updates
     empty!(sim.updates)
     push!(sim.updates, UpdateSingleSpin(inplane))
-    update_weights = [1.0]
+    push!(sim.updates, UpdateHexagon())
+    update_weights = [1.0 - update_hexagon_prob, update_hexagon_prob]
 
     @showprogress for cycle in 1:(n_warmup_cycles + n_cycles)
         for step in 1:cycle_length
@@ -396,38 +416,18 @@ function run!(sim::MCSimulation;
     end
 end
 
-"Update measurement data"
-function measure!(sim::MCSimulation)
-    sim.measurements.count += 1
-    sim.measurements.min_energy = min(sim.measurements.min_energy, sim.energy)
-    sim.measurements.energy_sum += sim.energy
-    sim.measurements.energy2_sum += sim.energy^2
+#
+# UpdateSingleSpin
+#
 
-    # Chirality
-    L1, L2 = size(sim.conf)
-    L = L1 * L2
-    χ = sum(eachindex(sim.conf)) do i
-        hn = hexagon_nodes(i, L1, L2)
-        ϕ1 = sim.conf.ϕ[hn[1]...]
-        ϕ2 = sim.conf.ϕ[hn[2]...]
-        ϕ3 = sim.conf.ϕ[hn[3]...]
-        χi = -(clampΔφ(ϕ2 - ϕ1) + clampΔφ(ϕ3 - ϕ2) + clampΔφ(ϕ1 - ϕ3)) / (2π)
-        @assert (isapprox(χi, -1, atol=1e-10) ||
-                 isapprox(χi, 0, atol=1e-10) ||
-                 isapprox(χi, 1, atol=1e-10))
-        return χi
-    end / L
-    sim.measurements.chirality_sum += χ
-    sim.measurements.chirality2_sum += χ^2
-end
-
-mutable struct UpdateSingleSpin{Bool}
+"Monte Carlo update: Select a random spin and change its components"
+mutable struct UpdateSingleSpin{Bool} <: AbstractUpdate
     "Integer coordinates of the spin to be updated"
     i::IntCoords
-    "Azimuthal angle before update"
-    ϕ_old::Float64
     "Polar angle before update"
     θ_old::Float64
+    "Azimuthal angle before update"
+    ϕ_old::Float64
     "Cartesian components of the spin before update"
     S_vec_old::Vector{Float64}
     "Contribution of the selected spin to energy's system before update"
@@ -452,9 +452,7 @@ function propose!(update::UpdateSingleSpin, sim::MCSimulation)::Float64
     θ = isinplane(update) ? (π / 2) : (π * rand(sim.rng, Float64))
     ϕ = 2π * rand(sim.rng, Float64)
 
-    sim.conf.θ[update.i...] = θ
-    sim.conf.ϕ[update.i...] = ϕ
-    sim.conf.S_vec[:, update.i...] = sim.conf.S * collect(sph2cart(θ, ϕ))
+    update_spin!(sim.conf, update.i, θ, ϕ)
 
     E = 0.5 * (xxz_energy_term(sim.conf, update.i, Jpar = sim.Jpar, Jperp = sim.Jperp) +
                rkky_energy_term(sim.conf, update.i, sim.V))
@@ -474,6 +472,94 @@ function reject!(update::UpdateSingleSpin, sim::MCSimulation)
     sim.conf.ϕ[update.i...] = update.ϕ_old
     sim.conf.S_vec[:, update.i...] .= update.S_vec_old
     sim.energy_per_node[update.i...] = update.energy_old
+end
+
+#
+# UpdateHexagon
+#
+
+"Monte Carlo update: Rotate spins on a randomly selected hexagon by an azimuthal angle"
+mutable struct UpdateHexagon <: AbstractUpdate
+    "Integer coordinates of the spins to be updated"
+    i::Vector{IntCoords}
+    "Azimuthal angles before update"
+    ϕ_old::Vector{Float64}
+    "Cartesian components of the spin before update"
+    S_vec_old::Vector{Vector{Float64}}
+    "Contributions of the selected spins to energy's system before update"
+    energy_old::Vector{Float64}
+    UpdateHexagon() = new(fill((0, 0), 3), zeros(3), fill(zeros(3), 3), zeros(3))
+end
+
+"Propose update of a hexagon"
+function propose!(update::UpdateHexagon, sim::MCSimulation)::Float64
+    L1, L2 = size(sim.conf)
+    update.i .= hexagon_nodes((rand(sim.rng, 0:(L1-1)), rand(sim.rng, 0:(L2-1))), L1, L2)
+
+    Δϕ = 2π * rand(sim.rng, Float64)
+
+    for (n, i) in enumerate(update.i)
+        update.ϕ_old[n] = sim.conf.ϕ[i...]
+        update.S_vec_old[n] .= sim.conf.S_vec[:, i...]
+        update.energy_old[n] = sim.energy_per_node[i...]
+
+        ϕ = mod(sim.conf.ϕ[i...] + Δϕ, 2π)
+        update_spin!(sim.conf, i, sim.conf.θ[i...], ϕ)
+    end
+
+    E_hexagon::Float64 = .0
+    for (n, i) in enumerate(update.i)
+        E = 0.5 * (xxz_energy_term(sim.conf, i, Jpar = sim.Jpar, Jperp = sim.Jperp) +
+                   rkky_energy_term(sim.conf, i, sim.V))
+        sim.energy_per_node[i...] = E
+        E_hexagon += E
+    end
+
+    return exp(-sim.β * (E_hexagon - sum(update.energy_old)))
+end
+
+"Accept update of a hexagon"
+function accept!(update::UpdateHexagon, sim::MCSimulation)
+    sim.energy += 0.5 * (sum(sim.energy_per_node[i...] for i in update.i)
+                         - sum(update.energy_old))
+end
+
+"Reject update of a hexagon"
+function reject!(update::UpdateHexagon, sim::MCSimulation)
+    for (n, i) in enumerate(update.i)
+        sim.conf.ϕ[i...] = update.ϕ_old[n]
+        sim.conf.S_vec[:, i...] .= update.S_vec_old[n]
+        sim.energy_per_node[i...] = update.energy_old[n]
+    end
+end
+
+#
+# Measurements
+#
+
+"Update measurement data"
+function measure!(sim::MCSimulation)
+    sim.measurements.count += 1
+    sim.measurements.min_energy = min(sim.measurements.min_energy, sim.energy)
+    sim.measurements.energy_sum += sim.energy
+    sim.measurements.energy2_sum += sim.energy^2
+
+    # Chirality
+    L1, L2 = size(sim.conf)
+    L = L1 * L2
+    χ = sum(eachindex(sim.conf)) do i
+        hn = hexagon_nodes(i, L1, L2)
+        ϕ1 = sim.conf.ϕ[hn[1]...]
+        ϕ2 = sim.conf.ϕ[hn[2]...]
+        ϕ3 = sim.conf.ϕ[hn[3]...]
+        χi = -(clampΔφ(ϕ2 - ϕ1) + clampΔφ(ϕ3 - ϕ2) + clampΔφ(ϕ1 - ϕ3)) / (2π)
+        @assert (isapprox(χi, -1, atol=1e-10) ||
+                 isapprox(χi, 0, atol=1e-10) ||
+                 isapprox(χi, 1, atol=1e-10))
+        return χi
+    end / L
+    sim.measurements.chirality_sum += χ
+    sim.measurements.chirality2_sum += χ^2
 end
 
 """
