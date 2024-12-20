@@ -67,9 +67,10 @@ using Aqua
         sim = MCSimulation(conf, β=β, Jpar=Jpar, Jperp=Jperp,
                            Vpar=Vpar, Vperp=Vperp, λ=λ, Vrenormalize=false)
 
-        run!(sim, n_cycles=500, n_warmup_cycles=100, cycle_length=50, inplane=true)
+        @time run!(sim, n_cycles=500, n_warmup_cycles=100, cycle_length=50, inplane=true)
 
         @show acceptance_rates(sim)
+        @show min_energy(sim)
         @show avg_energy(sim)
         @show var_energy(sim)
         @show avg_chirality(sim)
