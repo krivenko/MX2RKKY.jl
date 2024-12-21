@@ -72,7 +72,7 @@ using Aqua
              n_warmup_cycles=100,
              cycle_length=50,
              inplane=true,
-             update_hexagon_prob=0.1)
+             update_triangle_prob=0.1)
 
         @show acceptance_rates(sim)
         @show min_energy(sim)

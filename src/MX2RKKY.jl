@@ -37,11 +37,11 @@ end
 
 """
 Given coordinates of a node `i`, return coordinates of the nodes belonging to the same
-hexagon. The nodes belong to a parallelogram-shaped cluster of the triangular lattice
-with periodic boundary conditions and are listed in the clockwise order.
+elementary triangle. The nodes belong to a parallelogram-shaped cluster with periodic
+boundary conditions and are listed in the clockwise order.
 `L1` and `L2` are linear sizes of the cluster.
 """
-function hexagon_nodes(i::IntCoords, L1::Int, L2::Int)::Vector{IntCoords}
+function triangle_nodes(i::IntCoords, L1::Int, L2::Int)::Vector{IntCoords}
     i1, i2 = i
     return [i, (i1, mod(i2 + 1, L2)), (mod(i1 + 1, L1), mod(i2 + 1, L2))]
 end
@@ -371,13 +371,13 @@ Run Monte Carlo simulation.
 `cycle_length` - Number of MC updates per cycle.
 `seed` - seed to initialize the PRNG.
 `inplane` - Update only the azimuthal angles of the spins.
-`update_hexagon_prob` - Proposal probability of UpdateHexagon.
+`update_triangle_prob` - Proposal probability of UpdateTriangle.
 """
 function run!(sim::MCSimulation;
               n_cycles::Int, n_warmup_cycles::Int, cycle_length::Int = 100,
               seed::Union{Int, Nothing} = nothing,
               inplane::Bool = true,
-              update_hexagon_prob::Float64 = .0)
+              update_triangle_prob::Float64 = .0)
     @assert n_cycles > 0
     @assert n_warmup_cycles > 0
     @assert cycle_length > 0
@@ -390,8 +390,8 @@ function run!(sim::MCSimulation;
     # Markov chain updates
     empty!(sim.updates)
     push!(sim.updates, UpdateSingleSpin(inplane))
-    push!(sim.updates, UpdateHexagon())
-    update_weights = [1.0 - update_hexagon_prob, update_hexagon_prob]
+    push!(sim.updates, UpdateTriangle())
+    update_weights = [1.0 - update_triangle_prob, update_triangle_prob]
 
     @showprogress for cycle in 1:(n_warmup_cycles + n_cycles)
         for step in 1:cycle_length
@@ -475,11 +475,14 @@ function reject!(update::UpdateSingleSpin, sim::MCSimulation)
 end
 
 #
-# UpdateHexagon
+# UpdateTriangle
 #
 
-"Monte Carlo update: Rotate spins on a randomly selected hexagon by an azimuthal angle"
-mutable struct UpdateHexagon <: AbstractUpdate
+"""
+Monte Carlo update: Rotate spins on a randomly selected triangle by the same
+random azimuthal angle.
+"""
+mutable struct UpdateTriangle <: AbstractUpdate
     "Integer coordinates of the spins to be updated"
     i::Vector{IntCoords}
     "Azimuthal angles before update"
@@ -488,13 +491,13 @@ mutable struct UpdateHexagon <: AbstractUpdate
     S_vec_old::Vector{Vector{Float64}}
     "Contributions of the selected spins to energy's system before update"
     energy_old::Vector{Float64}
-    UpdateHexagon() = new(fill((0, 0), 3), zeros(3), fill(zeros(3), 3), zeros(3))
+    UpdateTriangle() = new(fill((0, 0), 3), zeros(3), fill(zeros(3), 3), zeros(3))
 end
 
-"Propose update of a hexagon"
-function propose!(update::UpdateHexagon, sim::MCSimulation)::Float64
+"Propose update of a triangle"
+function propose!(update::UpdateTriangle, sim::MCSimulation)::Float64
     L1, L2 = size(sim.conf)
-    update.i .= hexagon_nodes((rand(sim.rng, 0:(L1-1)), rand(sim.rng, 0:(L2-1))), L1, L2)
+    update.i .= triangle_nodes((rand(sim.rng, 0:(L1-1)), rand(sim.rng, 0:(L2-1))), L1, L2)
 
     Δϕ = 2π * rand(sim.rng, Float64)
 
@@ -507,25 +510,25 @@ function propose!(update::UpdateHexagon, sim::MCSimulation)::Float64
         update_spin!(sim.conf, i, sim.conf.θ[i...], ϕ)
     end
 
-    E_hexagon::Float64 = .0
+    E_triangle::Float64 = .0
     for (n, i) in enumerate(update.i)
         E = 0.5 * (xxz_energy_term(sim.conf, i, Jpar = sim.Jpar, Jperp = sim.Jperp) +
                    rkky_energy_term(sim.conf, i, sim.V))
         sim.energy_per_node[i...] = E
-        E_hexagon += E
+        E_triangle += E
     end
 
-    return exp(-sim.β * (E_hexagon - sum(update.energy_old)))
+    return exp(-sim.β * (E_triangle - sum(update.energy_old)))
 end
 
-"Accept update of a hexagon"
-function accept!(update::UpdateHexagon, sim::MCSimulation)
+"Accept update of a triangle"
+function accept!(update::UpdateTriangle, sim::MCSimulation)
     sim.energy += 0.5 * (sum(sim.energy_per_node[i...] for i in update.i)
                          - sum(update.energy_old))
 end
 
-"Reject update of a hexagon"
-function reject!(update::UpdateHexagon, sim::MCSimulation)
+"Reject update of a triangle"
+function reject!(update::UpdateTriangle, sim::MCSimulation)
     for (n, i) in enumerate(update.i)
         sim.conf.ϕ[i...] = update.ϕ_old[n]
         sim.conf.S_vec[:, i...] .= update.S_vec_old[n]
@@ -548,10 +551,10 @@ function measure!(sim::MCSimulation)
     L1, L2 = size(sim.conf)
     L = L1 * L2
     χ = sum(eachindex(sim.conf)) do i
-        hn = hexagon_nodes(i, L1, L2)
-        ϕ1 = sim.conf.ϕ[hn[1]...]
-        ϕ2 = sim.conf.ϕ[hn[2]...]
-        ϕ3 = sim.conf.ϕ[hn[3]...]
+        tn = triangle_nodes(i, L1, L2)
+        ϕ1 = sim.conf.ϕ[tn[1]...]
+        ϕ2 = sim.conf.ϕ[tn[2]...]
+        ϕ3 = sim.conf.ϕ[tn[3]...]
         χi = -(clampΔφ(ϕ2 - ϕ1) + clampΔφ(ϕ3 - ϕ2) + clampΔφ(ϕ1 - ϕ3)) / (2π)
         @assert (isapprox(χi, -1, atol=1e-10) ||
                  isapprox(χi, 0, atol=1e-10) ||
