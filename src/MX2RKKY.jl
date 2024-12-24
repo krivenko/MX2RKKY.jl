@@ -237,7 +237,7 @@ the renormalized interaction.
 the renormalized interaction.
 """
 function make_rkky_int_tensor(L1::Int, L2::Int, Vpar::Float64, Vperp::Float64, λ::Float64;
-                              renormalize::Bool = true,
+                              renormalize::Bool = false,
                               maxshells::Int = 100, atol::Float64 = 1e-4)
 
     V = OffsetArray(Array{Float64, 4}(undef, 3, 3, 2 * L1 - 1, 2 * L2 - 1),
@@ -344,7 +344,7 @@ function MCSimulation(init_conf::Configuration;
                       β::Float64,
                       Jpar::Float64, Jperp::Float64,
                       Vpar::Float64, Vperp::Float64, λ::Float64,
-                      Vrenormalize::Bool = True,
+                      Vrenormalize::Bool = false,
                       Vmaxshells::Int = 100,
                       Vatol::Float64 = 1e-4)
     L1, L2 = size(init_conf)
