@@ -1,7 +1,7 @@
 module MX2RKKY
 
 using OffsetArrays: OffsetArray, Origin
-using LinearAlgebra: dot
+using LinearAlgebra: dot, issymmetric, diag
 using SpecialFunctions: besselj0, besselj1, bessely0, bessely1
 using Random: AbstractRNG, MersenneTwister, rand
 using StatsBase: sample, Weights
@@ -126,7 +126,7 @@ Update a single spin in a configuration.
 @inline function update_spin!(conf::Configuration, i::IntCoords, θ::Float64, ϕ::Float64)
     conf.θ[i...] = θ
     conf.ϕ[i...] = ϕ
-    conf.S_vec[:, i...] = conf.S * collect(sph2cart(θ, ϕ))
+    conf.S_vec[:, i...] .= conf.S * collect(sph2cart(θ, ϕ))
 end
 
 #
@@ -134,34 +134,24 @@ end
 #
 
 """
-Energy contribution from the Heisenberg XXZ interaction of a single node with its neighbors.
+Compute energy contributions from the Heisenberg XXZ interaction of a single node with its
+neighbors. Add it to a given pair interaction energy array.
 
 `conf` - configuration of the interacting spins.
 `i` - integer coordinates of the node.
+`pair_int_energy` - interaction energies of `i` with each node.
 `Jpar` - longitudinal Heisenberg interaction constant J_{\\parallel}.
 `Jperp` - transversal Heisenberg interaction constant J_{\\perp}.
 """
-@inline function xxz_energy_term(conf::Configuration, i::IntCoords;
-                                 Jpar::Float64, Jperp::Float64)
+@inline function xxz_energy_contrib!(conf::Configuration, i::IntCoords,
+                                     pair_int_energy::AbstractArray{Float64, 2};
+                                     Jpar::Float64, Jperp::Float64)
     L1, L2 = size(conf)
     S_i = conf.S_vec[:, i...]
-    return sum(neighbors(i, L1, L2)) do j
+    for j in neighbors(i, L1, L2)
         S_j = conf.S_vec[:, j...]
-        Jpar * (S_i[1] * S_j[1] + S_i[2] * S_j[2]) + Jperp * S_i[3] * S_j[3]
-    end
-end
-
-"""
-Energy contributions from the Heisenberg XXZ terms.
-
-`conf` - configuration of the interacting spins.
-`Jpar` - longitudinal Heisenberg interaction constant J_{\\parallel}.
-`Jperp` - transversal Heisenberg interaction constant J_{\\perp}.
-"""
-function xxz_energy(conf::Configuration; Jpar::Float64, Jperp::Float64)
-    L1, L2 = size(conf)
-    return 0.5 * sum(eachindex(conf)) do i
-        xxz_energy_term(conf, i, Jpar=Jpar, Jperp=Jperp)
+        E = Jpar * (S_i[1] * S_j[1] + S_i[2] * S_j[2]) + Jperp * S_i[3] * S_j[3]
+        pair_int_energy[j...] += E / 2
     end
 end
 
@@ -256,34 +246,24 @@ function make_rkky_int_tensor(L1::Int, L2::Int, Vpar::Float64, Vperp::Float64, �
 end
 
 """
-Energy contribution from the RKKY interaction of a single node with all other nodes.
+Compute energy contribution from the RKKY interaction of a single node with all other nodes.
+Add it to a given pair interaction array.
 
 `conf` - configuration of the interacting spins.
 `i` - integer coordinates of the node.
+`pair_int_energy` - interaction energies of `i` with each node.
 `V` - RKKY interaction tensor.
 """
-@inline function rkky_energy_term(conf::Configuration, i::IntCoords,
-                                  V::OffsetArray{Float64, 4})
+@inline function rkky_energy_contrib!(conf::Configuration, i::IntCoords,
+                                      pair_int_energy::AbstractArray{Float64, 2};
+                                      V::OffsetArray{Float64, 4})
     L1, L2 = size(conf)
     S_i = conf.S_vec[:, i...]
-    return sum(eachindex(conf)) do j
-        (i == j) && return .0 # No self-interaction
+    for j in eachindex(conf)
+        (i == j) && continue # No self-interaction
         S_j = conf.S_vec[:, j...]
         Δi = i .- j
-        return dot(S_i, V[:, :, Δi...], S_j)
-    end
-end
-
-"""
-Energy contributions from the RKKY terms.
-
-`conf` - configuration of the interacting spins.
-`V` - RKKY interaction tensor.
-"""
-function rkky_energy(conf::Configuration, V::OffsetArray{Float64, 4})
-    L1, L2 = size(conf)
-    return 0.5 * sum(eachindex(conf)) do i
-        rkky_energy_term(conf, i, V)
+        pair_int_energy[j...] += dot(S_i, V[:, :, Δi...], S_j)
     end
 end
 
@@ -323,8 +303,8 @@ mutable struct MCSimulation
     const V::OffsetArray{Float64, 4}
     "Current spin configuration"
     conf::Configuration
-    "Node-resolved contributions to system's energy"
-    energy_per_node::OffsetArray{Float64, 2}
+    "Interaction energy (1/2) E[i1,i2,j1,j2] between nodes (i1, i2) and (j1, j2)"
+    pair_int_energy::OffsetArray{Float64, 4}
     "Total energy of the system"
     energy::Float64
     "Pseudo-random number generator"
@@ -350,13 +330,25 @@ function MCSimulation(init_conf::Configuration;
     L1, L2 = size(init_conf)
     V = make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ,
                              renormalize=Vrenormalize, maxshells=Vmaxshells, atol=Vatol)
-    energy_per_node = [xxz_energy_term(init_conf, i, Jpar=Jpar, Jperp=Jperp) +
-                       rkky_energy_term(init_conf, i, V)
-                       for i in eachindex(init_conf)]
-    energy = 0.5 * sum(energy_per_node)
+
+    pair_int_energy = OffsetArray(zeros(Float64, L1, L2, L1, L2), Origin(0))
+    for i in eachindex(init_conf)
+        pair_int_energy_i = @view pair_int_energy[:, :, i...]
+        xxz_energy_contrib!(init_conf, i, pair_int_energy_i, Jpar=Jpar, Jperp=Jperp)
+        rkky_energy_contrib!(init_conf, i, pair_int_energy_i, V=V)
+    end
+
+    # Check that pair_int_energy is symmetric and does not contain self-interaction terms
+    N = L1 * L2
+    pair_int_energy_mat = reshape(pair_int_energy, N, N)
+    @assert isapprox(pair_int_energy_mat, pair_int_energy_mat', atol=1e-10)
+    @assert iszero(diag(pair_int_energy_mat))
+
+    energy = sum(pair_int_energy)
+
     return MCSimulation(β, Jpar, Jperp, V,
                         init_conf,
-                        OffsetArray(energy_per_node, Origin(0)), energy,
+                        pair_int_energy, energy,
                         MersenneTwister(),
                         [], zeros(Int, 2), zeros(Int, 2),
                         Measurements())
@@ -388,12 +380,13 @@ function run!(sim::MCSimulation;
     end
 
     # Markov chain updates
+    L1, L2 = size(sim.conf)
     empty!(sim.updates)
-    push!(sim.updates, UpdateSingleSpin(inplane))
-    push!(sim.updates, UpdateTriangle())
+    push!(sim.updates, UpdateSingleSpin(L1, L2, inplane))
+    push!(sim.updates, UpdateTriangle(L1, L2))
     update_weights = [1.0 - update_triangle_prob, update_triangle_prob]
 
-    @showprogress for cycle in 1:(n_warmup_cycles + n_cycles)
+    @showprogress desc="Running MC simulation" for cycle in 1:(n_warmup_cycles + n_cycles)
         for step in 1:cycle_length
             # Metropolis-Hastings criterion
             update_i = sample(sim.rng, Weights(update_weights))
@@ -430,10 +423,15 @@ mutable struct UpdateSingleSpin{Bool} <: AbstractUpdate
     ϕ_old::Float64
     "Cartesian components of the spin before update"
     S_vec_old::Vector{Float64}
-    "Contribution of the selected spin to energy's system before update"
-    energy_old::Float64
+    "Contributions of the selected spin to system's energy after update"
+    pair_int_energy_new::OffsetArray{Float64, 2}
+    "Total energy change caused by the update"
+    ΔE::Float64
 
-    UpdateSingleSpin(inplane::Bool) = new{inplane}((0, 0), .0, .0, zeros(3), .0)
+    UpdateSingleSpin(L1::Int, L2::Int, inplane::Bool) = new{inplane}(
+        (0, 0), .0, .0, zeros(3),
+        OffsetArray(zeros(Float64, L1, L2), Origin(0)), .0
+    )
 end
 
 isinplane(::UpdateSingleSpin{inplane}) where inplane = inplane
@@ -447,23 +445,27 @@ function propose!(update::UpdateSingleSpin, sim::MCSimulation)::Float64
     update.θ_old = sim.conf.θ[update.i...]
     update.ϕ_old = sim.conf.ϕ[update.i...]
     update.S_vec_old = sim.conf.S_vec[:, update.i...]
-    update.energy_old = sim.energy_per_node[update.i...]
 
     θ = isinplane(update) ? (π / 2) : (π * rand(sim.rng, Float64))
     ϕ = 2π * rand(sim.rng, Float64)
 
     update_spin!(sim.conf, update.i, θ, ϕ)
 
-    E = 0.5 * (xxz_energy_term(sim.conf, update.i, Jpar = sim.Jpar, Jperp = sim.Jperp) +
-               rkky_energy_term(sim.conf, update.i, sim.V))
-    sim.energy_per_node[update.i...] = E
+    update.pair_int_energy_new .= 0
+    xxz_energy_contrib!(sim.conf, update.i, update.pair_int_energy_new,
+                        Jpar=sim.Jpar, Jperp=sim.Jperp)
+    rkky_energy_contrib!(sim.conf, update.i, update.pair_int_energy_new, V=sim.V)
 
-    return exp(-sim.β * (E - update.energy_old))
+    pair_int_energy_old = @view sim.pair_int_energy[:, :, update.i...]
+    update.ΔE = 2 * (sum(update.pair_int_energy_new) - sum(pair_int_energy_old))
+    return exp(-sim.β * update.ΔE)
 end
 
 "Accept update of a single spin in the cluster"
 function accept!(update::UpdateSingleSpin, sim::MCSimulation)
-    sim.energy += 0.5 * (sim.energy_per_node[update.i...] - update.energy_old)
+    sim.pair_int_energy[:, :, update.i...] .= update.pair_int_energy_new
+    sim.pair_int_energy[update.i..., :, :] .= update.pair_int_energy_new
+    sim.energy += update.ΔE
 end
 
 "Reject update of a single spin in the cluster"
@@ -471,7 +473,6 @@ function reject!(update::UpdateSingleSpin, sim::MCSimulation)
     sim.conf.θ[update.i...] = update.θ_old
     sim.conf.ϕ[update.i...] = update.ϕ_old
     sim.conf.S_vec[:, update.i...] .= update.S_vec_old
-    sim.energy_per_node[update.i...] = update.energy_old
 end
 
 #
@@ -479,7 +480,7 @@ end
 #
 
 """
-Monte Carlo update: Rotate spins on a randomly selected triangle by the same
+Monte Carlo update: Rotate spins on a randomly selected elementary triangle by the same
 random azimuthal angle.
 """
 mutable struct UpdateTriangle <: AbstractUpdate
@@ -487,52 +488,73 @@ mutable struct UpdateTriangle <: AbstractUpdate
     i::Vector{IntCoords}
     "Azimuthal angles before update"
     ϕ_old::Vector{Float64}
-    "Cartesian components of the spin before update"
-    S_vec_old::Vector{Vector{Float64}}
-    "Contributions of the selected spins to energy's system before update"
-    energy_old::Vector{Float64}
-    UpdateTriangle() = new(fill((0, 0), 3), zeros(3), fill(zeros(3), 3), zeros(3))
+    "Cartesian components of the spins before update"
+    S_vec_old::Array{Float64, 2}
+    "Contributions of the selected spins to system's energy after update"
+    pair_int_energy_new::OffsetArray{Float64, 3}
+    "Total energy change caused by the update"
+    ΔE::Float64
+
+    UpdateTriangle(L1::Int, L2::Int) = new(
+        fill((0, 0), 3),
+        zeros(Float64, 3),
+        zeros(Float64, 3, 3),
+        OffsetArray(zeros(Float64, L1, L2, 3), Origin(0, 0, 1)),
+        .0
+    )
 end
 
 "Propose update of a triangle"
 function propose!(update::UpdateTriangle, sim::MCSimulation)::Float64
     L1, L2 = size(sim.conf)
     update.i .= triangle_nodes((rand(sim.rng, 0:(L1-1)), rand(sim.rng, 0:(L2-1))), L1, L2)
-
     Δϕ = 2π * rand(sim.rng, Float64)
 
     for (n, i) in enumerate(update.i)
         update.ϕ_old[n] = sim.conf.ϕ[i...]
-        update.S_vec_old[n] .= sim.conf.S_vec[:, i...]
-        update.energy_old[n] = sim.energy_per_node[i...]
-
+        update.S_vec_old[:, n] .= sim.conf.S_vec[:, i...]
         ϕ = mod(sim.conf.ϕ[i...] + Δϕ, 2π)
         update_spin!(sim.conf, i, sim.conf.θ[i...], ϕ)
     end
 
-    E_triangle::Float64 = .0
+    update.ΔE = 0
     for (n, i) in enumerate(update.i)
-        E = 0.5 * (xxz_energy_term(sim.conf, i, Jpar = sim.Jpar, Jperp = sim.Jperp) +
-                   rkky_energy_term(sim.conf, i, sim.V))
-        sim.energy_per_node[i...] = E
-        E_triangle += E
+        pair_int_energy_new = @view update.pair_int_energy_new[:, :, n]
+        pair_int_energy_new .= 0;
+        xxz_energy_contrib!(sim.conf, i, pair_int_energy_new,
+                            Jpar=sim.Jpar, Jperp=sim.Jperp)
+        rkky_energy_contrib!(sim.conf, i, pair_int_energy_new, V=sim.V)
+
+        pair_int_energy_old = @view sim.pair_int_energy[i..., :, :]
+        update.ΔE += 2 * (sum(pair_int_energy_new) - sum(pair_int_energy_old))
     end
 
-    return exp(-sim.β * (E_triangle - sum(update.energy_old)))
+    # Subtract the double counting terms stemming from the interaction between the 3
+    # selected nodes
+    update.ΔE -= 2 * (update.pair_int_energy_new[update.i[2]..., 1] -
+                      sim.pair_int_energy[update.i[1]..., update.i[2]...])
+    update.ΔE -= 2 * (update.pair_int_energy_new[update.i[3]..., 2] -
+                      sim.pair_int_energy[update.i[2]..., update.i[3]...])
+    update.ΔE -= 2 * (update.pair_int_energy_new[update.i[1]..., 3] -
+                      sim.pair_int_energy[update.i[3]..., update.i[1]...])
+
+    return exp(-sim.β * update.ΔE)
 end
 
 "Accept update of a triangle"
 function accept!(update::UpdateTriangle, sim::MCSimulation)
-    sim.energy += 0.5 * (sum(sim.energy_per_node[i...] for i in update.i)
-                         - sum(update.energy_old))
+    for (n, i) in enumerate(update.i)
+        sim.pair_int_energy[:, :, i...] .= update.pair_int_energy_new[:, :, n]
+        sim.pair_int_energy[i..., :, :] .= update.pair_int_energy_new[:, :, n]
+    end
+    sim.energy += update.ΔE
 end
 
 "Reject update of a triangle"
 function reject!(update::UpdateTriangle, sim::MCSimulation)
     for (n, i) in enumerate(update.i)
         sim.conf.ϕ[i...] = update.ϕ_old[n]
-        sim.conf.S_vec[:, i...] .= update.S_vec_old[n]
-        sim.energy_per_node[i...] = update.energy_old[n]
+        sim.conf.S_vec[:, i...] .= update.S_vec_old[:, n]
     end
 end
 
@@ -542,14 +564,15 @@ end
 
 "Update measurement data"
 function measure!(sim::MCSimulation)
-    sim.measurements.count += 1
-    sim.measurements.min_energy = min(sim.measurements.min_energy, sim.energy)
-    sim.measurements.energy_sum += sim.energy
-    sim.measurements.energy2_sum += sim.energy^2
+    m = sim.measurements
+    m.count += 1
+    m.min_energy = min(sim.measurements.min_energy, sim.energy)
+    m.energy_sum += sim.energy
+    m.energy2_sum += sim.energy^2
 
     # Chirality
     L1, L2 = size(sim.conf)
-    L = L1 * L2
+    N = L1 * L2
     χ = sum(eachindex(sim.conf)) do i
         tn = triangle_nodes(i, L1, L2)
         ϕ1 = sim.conf.ϕ[tn[1]...]
@@ -560,9 +583,9 @@ function measure!(sim::MCSimulation)
                  isapprox(χi, 0, atol=1e-10) ||
                  isapprox(χi, 1, atol=1e-10))
         return χi
-    end / L
-    sim.measurements.chirality_sum += χ
-    sim.measurements.chirality2_sum += χ^2
+    end / N
+    m.chirality_sum += χ
+    m.chirality2_sum += χ^2
 end
 
 """

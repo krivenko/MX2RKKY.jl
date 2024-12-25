@@ -1,5 +1,7 @@
 using MX2RKKY
+
 using Test
+using LinearAlgebra: dot
 using Random: MersenneTwister
 using Aqua
 
@@ -25,8 +27,6 @@ using Aqua
 
         conf = Configuration(L1, L2, MersenneTwister(123456))
 
-        MX2RKKY.xxz_energy(conf, Jpar=1.6, Jperp=1.5)
-
         Vpar = 3.0
         Vperp = 2.0
         λ = 0.1
@@ -46,8 +46,6 @@ using Aqua
                        atol=1e-3)
 
         V = MX2RKKY.make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ, renormalize=false)
-        MX2RKKY.rkky_energy_term(conf, i, V)
-        MX2RKKY.rkky_energy(conf, V)
     end
 
     @testset "MCSimulation" begin
@@ -59,20 +57,34 @@ using Aqua
 
         β = 10.0
         Jpar = 2.0
-        Jperp = 0.0
-        Vpar = 0.1
-        Vperp = 0.0
+        Jperp = 0.5
+        Vpar = 0.2
+        Vperp = 0.1
         λ = 0.1
+
+        function energy_ref(S_vec)
+            E = 0.5 * sum(
+                 Jpar * (S_vec[1, i...] * S_vec[1, j...] + S_vec[2, i...] * S_vec[2, j...])
+                 + Jperp * S_vec[3, i...] * S_vec[3, j...]
+                 for i in eachindex(sim.conf), j in eachindex(sim.conf)
+                 if (j ∈ MX2RKKY.neighbors(i, L1, L2))
+            )
+            E += sum(dot(S_vec[:, i...], sim.V[:, :, (i .- j)...], S_vec[:, j...])
+                     for i in eachindex(sim.conf), j in eachindex(sim.conf) if i != j)
+            return E
+        end
 
         sim = MCSimulation(conf, β=β, Jpar=Jpar, Jperp=Jperp,
                            Vpar=Vpar, Vperp=Vperp, λ=λ, Vrenormalize=false)
+        @test sim.energy ≈ energy_ref(sim.conf.S_vec)
 
         run!(sim,
              n_cycles=500,
              n_warmup_cycles=100,
              cycle_length=50,
              inplane=true,
-             update_triangle_prob=0.1)
+             update_triangle_prob=0.2)
+        @test sim.energy ≈ energy_ref(sim.conf.S_vec)
 
         @show acceptance_rates(sim)
         @show min_energy(sim)
