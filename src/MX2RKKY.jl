@@ -262,7 +262,7 @@ Add it to a given pair interaction array.
     for j in eachindex(conf)
         (i == j) && continue # No self-interaction
         S_j = conf.S_vec[:, j...]
-        Δi = i .- j
+        Δi = j .- i
         pair_int_energy[j...] += dot(S_i, V[:, :, Δi...], S_j)
     end
 end
