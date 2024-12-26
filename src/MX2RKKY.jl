@@ -275,17 +275,11 @@ end
 mutable struct Measurements
     "Number of measurements taken"
     count::Int
-    "Lowest encountered energy"
-    min_energy::Float64
-    "Accumulated energy of the system (sum over samples)"
-    energy_sum::Float64
-    "Accumulated energy squared (sum over samples)"
-    energy2_sum::Float64
-    "Accumulated chirality (sum over samples)"
-    chirality_sum::Float64
-    "Accumulated chirality squared (sum over samples)"
-    chirality2_sum::Float64
-    Measurements() = new(0, Inf, .0, .0, .0, .0)
+    "Samples: Energy of the system"
+    energy::Vector{Float64}
+    "Samples: Chirality"
+    chirality::Vector{Float64}
+    Measurements() = new(0, [], [])
 end
 
 "Base type of Monte Carlo updates"
@@ -385,6 +379,10 @@ function run!(sim::MCSimulation;
     push!(sim.updates, UpdateSingleSpin(L1, L2, inplane))
     push!(sim.updates, UpdateTriangle(L1, L2))
     update_weights = [1.0 - update_triangle_prob, update_triangle_prob]
+
+    # Initialize measurements
+    resize!(sim.measurements.energy, n_cycles)
+    resize!(sim.measurements.chirality, n_cycles)
 
     @showprogress desc="Running MC simulation" for cycle in 1:(n_warmup_cycles + n_cycles)
         for step in 1:cycle_length
@@ -566,9 +564,7 @@ end
 function measure!(sim::MCSimulation)
     m = sim.measurements
     m.count += 1
-    m.min_energy = min(sim.measurements.min_energy, sim.energy)
-    m.energy_sum += sim.energy
-    m.energy2_sum += sim.energy^2
+    m.energy[m.count] = sim.energy
 
     # Chirality
     L1, L2 = size(sim.conf)
@@ -584,8 +580,7 @@ function measure!(sim::MCSimulation)
                  isapprox(χi, 1, atol=1e-10))
         return χi
     end / N
-    m.chirality_sum += χ
-    m.chirality2_sum += χ^2
+    m.chirality[m.count] = χ
 end
 
 """
@@ -597,24 +592,26 @@ function acceptance_rates(sim::MCSimulation)
 end
 
 "Extract the lowest encountered energy from a simulation structure."
-min_energy(sim::MCSimulation) = sim.measurements.min_energy
+min_energy(sim::MCSimulation) = minimum(sim.measurements.energy)
 
 "Extract average energy of the system from a simulation structure."
-avg_energy(sim::MCSimulation) = sim.measurements.energy_sum / sim.measurements.count
+avg_energy(sim::MCSimulation) = sum(sim.measurements.energy) / sim.measurements.count
 
 "Extract variance of energy from a simulation structure."
 function var_energy(sim::MCSimulation)
     E_avg = avg_energy(sim)
-    return sqrt((sim.measurements.energy2_sum / sim.measurements.count) - E_avg^2)
+    return sqrt(sum((sim.measurements.energy .- E_avg) .^ 2) /
+                (sim.measurements.count - 1))
 end
 
 "Extract average chirality from a simulation structure."
-avg_chirality(sim::MCSimulation) = sim.measurements.chirality_sum / sim.measurements.count
+avg_chirality(sim::MCSimulation) = sum(sim.measurements.chirality) / sim.measurements.count
 
 "Extract variance of chirality from a simulation structure."
 function var_chirality(sim::MCSimulation)
     χ_avg = avg_chirality(sim)
-    return sqrt((sim.measurements.chirality2_sum / sim.measurements.count) - χ_avg^2)
+    return sqrt(sum((sim.measurements.chirality .- χ_avg) .^ 2) /
+                (sim.measurements.count - 1))
 end
 
 end # module MX2RKKY
