@@ -69,7 +69,7 @@ using Aqua
                  for i in eachindex(sim.conf), j in eachindex(sim.conf)
                  if (j ∈ MX2RKKY.neighbors(i, L1, L2))
             )
-            E += sum(dot(S_vec[:, i...], sim.V[:, :, (i .- j)...], S_vec[:, j...])
+            E += sum(dot(S_vec[:, i...], sim.V[:, :, (j .- i)...], S_vec[:, j...])
                      for i in eachindex(sim.conf), j in eachindex(sim.conf) if i != j)
             return E
         end
