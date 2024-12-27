@@ -3,6 +3,12 @@ module lattice
 "Integer coordinates of 2D lattice vectors in the basis a1 = (1, 0), a2 = (-1/2, √3/2)"
 const IntCoords = Tuple{Int, Int}
 
+"Convert lattice coordinates on a triangular lattice to Cartesian coordinates"
+l2c(i1::Real, i2::Real) = (i1 - i2 / 2, √3/2 * i2)
+
+"Convert Cartesian coordinates to lattice coordinates on a triangular lattice"
+c2l(x::Real, y::Real) = (x + y / √3, 2 * y / √3)
+
 """
 Given coordinates of a node `i`, return coordinates of its neighbors on
 a parallelogram-shaped cluster of the triangular lattice with periodic boundary conditions.
