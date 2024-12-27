@@ -81,6 +81,28 @@ Update a single spin in a configuration.
     conf.S_vec[:, i...] .= collect(sph2cart(conf.S, θ, ϕ))
 end
 
+"""
+Compute chirality of a single triangle in a given configuration.
+
+The triangle is specified by the integer coordinates of its lowest (having the smallest `y`
+coordinate) node.
+
+`conf` - spin configuration.
+`i` - integer coordinates of the node.
+"""
+@inline function chirality(conf::Configuration, i::IntCoords)
+    L1, L2 = size(conf)
+    tn = triangle_nodes(i, L1, L2)
+    ϕ1 = conf.ϕ[tn[1]...]
+    ϕ2 = conf.ϕ[tn[2]...]
+    ϕ3 = conf.ϕ[tn[3]...]
+    χ = -(clamp_angle(ϕ2 - ϕ1) + clamp_angle(ϕ3 - ϕ2) + clamp_angle(ϕ1 - ϕ3)) / (2π)
+    @assert (isapprox(χ, -1, atol=1e-10) ||
+             isapprox(χ, 0, atol=1e-10) ||
+             isapprox(χ, 1, atol=1e-10))
+    return χ
+end
+
 #
 # Heisenberg XXZ model
 #
@@ -528,19 +550,7 @@ function measure!(sim::MCSimulation)
 
     # Chirality
     L1, L2 = size(sim.conf)
-    N = L1 * L2
-    χ = sum(eachindex(sim.conf)) do i
-        tn = triangle_nodes(i, L1, L2)
-        ϕ1 = sim.conf.ϕ[tn[1]...]
-        ϕ2 = sim.conf.ϕ[tn[2]...]
-        ϕ3 = sim.conf.ϕ[tn[3]...]
-        χi = -(clamp_angle(ϕ2 - ϕ1) + clamp_angle(ϕ3 - ϕ2) + clamp_angle(ϕ1 - ϕ3)) / (2π)
-        @assert (isapprox(χi, -1, atol=1e-10) ||
-                 isapprox(χi, 0, atol=1e-10) ||
-                 isapprox(χi, 1, atol=1e-10))
-        return χi
-    end / N
-    m.chirality[m.count] = χ
+    m.chirality[m.count] = sum(i -> chirality(sim.conf, i), eachindex(sim.conf)) / (L1 * L2)
 end
 
 """
