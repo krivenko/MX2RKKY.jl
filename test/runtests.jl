@@ -1,4 +1,5 @@
 using MX2RKKY
+using MX2RKKY.montecarlo
 
 using Test
 using LinearAlgebra: dot
@@ -12,7 +13,7 @@ using Aqua
 
     @testset "Lattice" begin
         L1, L2 = 3, 4
-        @test MX2RKKY.neighbors((0, 0), L1, L2) ==
+        @test montecarlo.neighbors((0, 0), L1, L2) ==
               [(1, 0), (0, 3), (2, 3), (2, 0), (0, 1), (1, 1)]
     end
 
@@ -33,19 +34,19 @@ using Aqua
 
         i = (3, 2)
 
-        @test MX2RKKY.rkky_int(i, Vpar, Vperp, λ) ≈ [
+        @test montecarlo.rkky_int(i, Vpar, Vperp, λ) ≈ [
             1.821551601453564 3.1550199223260273 0.;
            -3.1550199223260273 1.821551601453564 0.;
             0. 0. -2.428735468604752
         ]
-        @test isapprox(MX2RKKY.renorm_rkky_int(i, Vpar, Vperp, λ,
+        @test isapprox(montecarlo.renorm_rkky_int(i, Vpar, Vperp, λ,
                                                L1=100, L2=150, maxshells=100, atol=1e-4),
                        [1.8090998587819007	3.140442549655362	0.;
                         -3.140442549655362	1.8090998587819007	0.;
                         0.	0.	-2.4385083545467614],
                        atol=1e-3)
 
-        V = MX2RKKY.make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ, renormalize=false)
+        V = montecarlo.make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ, renormalize=false)
     end
 
     @testset "MCSimulation" begin
@@ -67,7 +68,7 @@ using Aqua
                  Jpar * (S_vec[1, i...] * S_vec[1, j...] + S_vec[2, i...] * S_vec[2, j...])
                  + Jperp * S_vec[3, i...] * S_vec[3, j...]
                  for i in eachindex(sim.conf), j in eachindex(sim.conf)
-                 if (j ∈ MX2RKKY.neighbors(i, L1, L2))
+                 if (j ∈ montecarlo.neighbors(i, L1, L2))
             )
             E += sum(dot(S_vec[:, i...], sim.V[:, :, (j .- i)...], S_vec[:, j...])
                      for i in eachindex(sim.conf), j in eachindex(sim.conf) if i != j)
