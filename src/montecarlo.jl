@@ -325,8 +325,8 @@ function run!(sim::MCSimulation;
               seed::Union{Int, Nothing} = nothing,
               inplane::Bool = true,
               update_triangle_prob::Float64 = .0)
-    @assert n_cycles > 0
-    @assert n_warmup_cycles > 0
+    @assert n_cycles >= 0
+    @assert n_warmup_cycles >= 0
     @assert cycle_length > 0
 
     # Optionally re-seed RNG
