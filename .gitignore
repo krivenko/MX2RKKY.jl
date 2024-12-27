@@ -4,3 +4,4 @@
 /notebooks/Manifest.toml
 *.code-workspace
 .ipynb_checkpoints
+*.pdf
