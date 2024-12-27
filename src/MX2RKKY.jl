@@ -4,5 +4,6 @@ module MX2RKKY
 include("utility.jl")
 include("lattice.jl")
 include("montecarlo.jl")
+include("visualization.jl")
 
 end # module MX2RKKY
