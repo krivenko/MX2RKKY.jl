@@ -12,18 +12,18 @@ using Aqua
     end
 
     @testset "Lattice" begin
-        L1, L2 = 3, 4
+        L1, L2 = 3, 6
         @test montecarlo.neighbors((0, 0), L1, L2) ==
-              [(1, 0), (0, 3), (2, 3), (2, 0), (0, 1), (1, 1)]
+              [(1, 0), (0, 5), (2, 5), (2, 0), (0, 1), (1, 1)]
     end
 
     @testset "Configuration" begin
-        c1 = Configuration(3, 4)
-        c2 = Configuration(3, 4, MersenneTwister(123456))
+        c1 = Configuration(3, 6)
+        c2 = Configuration(3, 6, MersenneTwister(123456))
     end
 
     @testset "Hamiltonians" begin
-        L1 = 10
+        L1 = 9
         L2 = 15
 
         conf = Configuration(L1, L2, MersenneTwister(123456))
@@ -40,17 +40,17 @@ using Aqua
             0. 0. -2.428735468604752
         ]
         @test isapprox(montecarlo.renorm_rkky_int(i, Vpar, Vperp, λ,
-                                               L1=100, L2=150, maxshells=100, atol=1e-4),
-                       [1.8090998587819007	3.140442549655362	0.;
-                        -3.140442549655362	1.8090998587819007	0.;
-                        0.	0.	-2.4385083545467614],
+                                                  L1=96, L2=150, maxshells=100, atol=1e-4),
+                       [1.8288029675935291	3.167579656904715	0.;
+                        -3.167579656904715	1.8288029675935291	0.;
+                        0.	0.	-2.4384039567913622],
                        atol=1e-3)
 
         V = montecarlo.make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ, renormalize=false)
     end
 
     @testset "MCSimulation" begin
-        L1 = 10
+        L1 = 9
         L2 = 15
 
         rng = MersenneTwister(123456)

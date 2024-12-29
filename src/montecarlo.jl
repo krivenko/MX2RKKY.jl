@@ -35,11 +35,13 @@ end
 
 """
 Make a completely polarized (ϕ = 0) in-plane configuration of spins `S`
-with given linear sizes `L1` and `L2`.
+with given linear sizes `L1` and `L2`. Both linear sizes must be multiples of 3.
 """
 function Configuration(L1::Int, L2::Int; S::Float64 = 1.0)
     @assert L1 > 0
     @assert L2 > 0
+    @assert (L1 % 3 == 0) "L1 must be a multiple of 3"
+    @assert (L2 % 3 == 0) "L2 must be a multiple of 3"
     θ = OffsetArray(fill(π / 2, L1, L2), Origin(0))
     ϕ = OffsetArray(fill(.0, L1, L2), Origin(0))
     S_vec = [n[α] for α in 1:3, n in sph2cart.(S, θ, ϕ)]
@@ -48,6 +50,7 @@ end
 
 """
 Make a disordered configuration of spins `S` with given linear sizes `L1` and `L2`.
+Both linear sizes must be multiples of 3.
 `rng` is the random number generator used to initialize components of the spins.
 z-components of all spins are set to zero, if `inplane = true`.
 """
@@ -55,6 +58,8 @@ function Configuration(L1::Int, L2::Int, rng::AbstractRNG;
                        S::Float64 = 1.0, inplane::Bool = true)
     @assert L1 > 0
     @assert L2 > 0
+    @assert (L1 % 3 == 0) "L1 must be a multiple of 3"
+    @assert (L2 % 3 == 0) "L2 must be a multiple of 3"
     θ = OffsetArray(inplane ? fill(π / 2, L1, L2) : (π * rand(rng, L1, L2)), Origin(0))
     ϕ = OffsetArray(2π * rand(rng, L1, L2), Origin(0))
     S_vec = [n[α] for α in 1:3, n in sph2cart.(S, θ, ϕ)]
