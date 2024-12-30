@@ -70,8 +70,10 @@ using Aqua
                  for i in eachindex(sim.conf), j in eachindex(sim.conf)
                  if (j ∈ montecarlo.neighbors(i, L1, L2))
             )
-            E += sum(dot(S_vec[:, i...], sim.V[:, :, (j .- i)...], S_vec[:, j...])
-                     for i in eachindex(sim.conf), j in eachindex(sim.conf) if i != j)
+            if !isnothing(sim.V)
+                E += sum(dot(S_vec[:, i...], sim.V[:, :, (j .- i)...], S_vec[:, j...])
+                         for i in eachindex(sim.conf), j in eachindex(sim.conf) if i != j)
+            end
             return E
         end
 

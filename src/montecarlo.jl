@@ -282,7 +282,7 @@ mutable struct MCSimulation
     "Heisenberg interaction parameter J_{\\perp}"
     const Jperp::Float64
     "RKKY interaction tensor"
-    const V::OffsetArray{Float64, 4}
+    const V::Union{OffsetArray{Float64, 4}, Nothing}
     "Current spin configuration"
     conf::Configuration
     "Interaction energy (1/2) E[i1,i2,j1,j2] between nodes (i1, i2) and (j1, j2)"
@@ -310,14 +310,20 @@ function MCSimulation(init_conf::Configuration;
                       Vmaxshells::Int = 100,
                       Vatol::Float64 = 1e-4)
     L1, L2 = size(init_conf)
-    V = make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ,
-                             renormalize=Vrenormalize, maxshells=Vmaxshells, atol=Vatol)
+
+    enable_rkky = !(iszero(Vpar) && iszero(Vperp))
+    if enable_rkky
+        V = make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ,
+                                 renormalize=Vrenormalize, maxshells=Vmaxshells, atol=Vatol)
+    end
 
     pair_int_energy = OffsetArray(zeros(Float64, L1, L2, L1, L2), Origin(0))
     for i in eachindex(init_conf)
         pair_int_energy_i = @view pair_int_energy[:, :, i...]
         xxz_energy_contrib!(init_conf, i, pair_int_energy_i, Jpar=Jpar, Jperp=Jperp)
-        rkky_energy_contrib!(init_conf, i, pair_int_energy_i, V=V)
+        if enable_rkky
+            rkky_energy_contrib!(init_conf, i, pair_int_energy_i, V=V)
+        end
     end
 
     # Check that pair_int_energy is symmetric and does not contain self-interaction terms
@@ -328,7 +334,7 @@ function MCSimulation(init_conf::Configuration;
 
     energy = sum(pair_int_energy)
 
-    return MCSimulation(β, Jpar, Jperp, V,
+    return MCSimulation(β, Jpar, Jperp, enable_rkky ? V : nothing,
                         init_conf,
                         pair_int_energy, energy,
                         MersenneTwister(),
@@ -439,7 +445,9 @@ function propose!(update::UpdateSingleSpin, sim::MCSimulation)::Float64
     update.pair_int_energy_new .= 0
     xxz_energy_contrib!(sim.conf, update.i, update.pair_int_energy_new,
                         Jpar=sim.Jpar, Jperp=sim.Jperp)
-    rkky_energy_contrib!(sim.conf, update.i, update.pair_int_energy_new, V=sim.V)
+    if !isnothing(sim.V)
+        rkky_energy_contrib!(sim.conf, update.i, update.pair_int_energy_new, V=sim.V)
+    end
 
     pair_int_energy_old = @view sim.pair_int_energy[:, :, update.i...]
     update.ΔE = 2 * (sum(update.pair_int_energy_new) - sum(pair_int_energy_old))
@@ -508,7 +516,9 @@ function propose!(update::UpdateTriangle, sim::MCSimulation)::Float64
         pair_int_energy_new .= 0;
         xxz_energy_contrib!(sim.conf, i, pair_int_energy_new,
                             Jpar=sim.Jpar, Jperp=sim.Jperp)
-        rkky_energy_contrib!(sim.conf, i, pair_int_energy_new, V=sim.V)
+        if !isnothing(sim.V)
+            rkky_energy_contrib!(sim.conf, i, pair_int_energy_new, V=sim.V)
+        end
 
         pair_int_energy_old = @view sim.pair_int_energy[i..., :, :]
         update.ΔE += 2 * (sum(pair_int_energy_new) - sum(pair_int_energy_old))
