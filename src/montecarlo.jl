@@ -302,7 +302,8 @@ mutable struct MCSimulation
 end
 
 "Construct a simulation structure"
-function MCSimulation(init_conf::Configuration;
+function MCSimulation(init_conf::Configuration,
+                      rng::AbstractRNG;
                       β::Float64,
                       Jpar::Float64, Jperp::Float64,
                       Vpar::Float64, Vperp::Float64, λ::Float64,
@@ -337,7 +338,7 @@ function MCSimulation(init_conf::Configuration;
     return MCSimulation(β, Jpar, Jperp, enable_rkky ? V : nothing,
                         init_conf,
                         pair_int_energy, energy,
-                        MersenneTwister(),
+                        rng,
                         [], zeros(Int, 2), zeros(Int, 2),
                         Measurements())
 end
@@ -349,23 +350,16 @@ Run Monte Carlo simulation.
 `n_cycles` - Number of measurement cycles.
 `n_warmup_cycles` - Number of warm-up cycles.
 `cycle_length` - Number of MC updates per cycle.
-`seed` - seed to initialize the PRNG.
 `inplane` - Update only the azimuthal angles of the spins.
 `update_triangle_prob` - Proposal probability of UpdateTriangle.
 """
 function run!(sim::MCSimulation;
               n_cycles::Int, n_warmup_cycles::Int, cycle_length::Int = 100,
-              seed::Union{Int, Nothing} = nothing,
               inplane::Bool = true,
               update_triangle_prob::Float64 = .0)
     @assert n_cycles >= 0
     @assert n_warmup_cycles >= 0
     @assert cycle_length > 0
-
-    # Optionally re-seed RNG
-    if !isnothing(seed)
-        sim.rng = MersenneTwister(seed)
-    end
 
     # Markov chain updates
     L1, L2 = size(sim.conf)

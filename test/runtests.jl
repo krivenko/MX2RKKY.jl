@@ -77,7 +77,7 @@ using Aqua
             return E
         end
 
-        sim = MCSimulation(conf, β=β, Jpar=Jpar, Jperp=Jperp,
+        sim = MCSimulation(conf, rng, β=β, Jpar=Jpar, Jperp=Jperp,
                            Vpar=Vpar, Vperp=Vperp, λ=λ, Vrenormalize=false)
         @test sim.energy ≈ energy_ref(sim.conf.S_vec)
 
