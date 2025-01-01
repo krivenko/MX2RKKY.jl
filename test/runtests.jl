@@ -1,4 +1,5 @@
 using MX2RKKY
+using MX2RKKY.utility: range_of_nonmissing
 using MX2RKKY.montecarlo
 
 using Test
@@ -9,6 +10,12 @@ using Aqua
 @testset "MX2RKKY.jl" begin
     @testset "Code quality (Aqua.jl)" begin
         Aqua.test_all(MX2RKKY)
+    end
+
+    @testset "Utility" begin
+        a = [1, 2, missing, 4, missing, missing, 7, 8, 9, missing]
+        @test range_of_nonmissing(a, 2:5) == [2, 4, 7, 8]
+        @test range_of_nonmissing(a) == [1, 2, 4, 7, 8, 9]
     end
 
     @testset "Lattice" begin

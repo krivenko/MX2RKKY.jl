@@ -16,4 +16,16 @@ function clamp_angle(ϕ::Float64)
     end
 end
 
+"""
+Take a range of non-missing elements of a vector. By default, all non-missing elements
+are taken.
+"""
+function range_of_nonmissing(v::Vector, range::Union{AbstractRange, Nothing} = nothing)
+    v_nm = collect(skipmissing(v))
+    if isnothing(range)
+        range = axes(v_nm, 1)
+    end
+    return v_nm[range]
+end
+
 end # module utility

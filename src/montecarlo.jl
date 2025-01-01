@@ -8,7 +8,7 @@ using Statistics: mean, std
 using StatsBase: sample, Weights
 using ProgressMeter: @showprogress
 
-using MX2RKKY.utility: clamp_angle, sph2cart
+using MX2RKKY.utility: clamp_angle, sph2cart, range_of_nonmissing
 using MX2RKKY.lattice: IntCoords, neighbors, triangle_nodes
 
 export Configuration, MCSimulation, run!, acceptance_rates
@@ -571,18 +571,33 @@ function acceptance_rates(sim::MCSimulation)
 end
 
 "Extract the lowest encountered energy from a simulation structure."
-min_energy(sim::MCSimulation) = minimum(skipmissing(sim.measurements.energy))
+function min_energy(sim::MCSimulation,
+                    sample_range::Union{AbstractRange, Nothing} = nothing)
+    return minimum(range_of_nonmissing(sim.measurements.energy, sample_range))
+end
 
 "Extract average energy of the system from a simulation structure."
-avg_energy(sim::MCSimulation) = mean(skipmissing(sim.measurements.energy))
+function avg_energy(sim::MCSimulation,
+                    sample_range::Union{AbstractRange, Nothing} = nothing)
+    return mean(range_of_nonmissing(sim.measurements.energy, sample_range))
+end
 
-"Extract variance of energy from a simulation structure."
-var_energy(sim::MCSimulation) = std(skipmissing(sim.measurements.energy))
+"Extract Monte Carlo variance of energy from a simulation structure."
+function var_energy(sim::MCSimulation,
+                    sample_range::Union{AbstractRange, Nothing} = nothing)
+    return std(range_of_nonmissing(sim.measurements.energy, sample_range))
+end
 
 "Extract average chirality from a simulation structure."
-avg_chirality(sim::MCSimulation) = mean(skipmissing(sim.measurements.chirality))
+function avg_chirality(sim::MCSimulation,
+                       sample_range::Union{AbstractRange, Nothing} = nothing)
+    return mean(range_of_nonmissing(sim.measurements.chirality, sample_range))
+end
 
-"Extract variance of chirality from a simulation structure."
-var_chirality(sim::MCSimulation) = std(skipmissing(sim.measurements.chirality))
+"Extract Monte Carlo variance of chirality from a simulation structure."
+function var_chirality(sim::MCSimulation,
+                       sample_range::Union{AbstractRange, Nothing} = nothing)
+    return std(range_of_nonmissing(sim.measurements.chirality, sample_range))
+end
 
 end # module montecarlo
