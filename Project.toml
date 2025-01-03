@@ -1,7 +1,7 @@
 name = "MX2RKKY"
 uuid = "72e1c527-8a46-4567-9268-d70aedf73814"
 authors = ["Igor Krivenko <iskrivenko@proton.me> and contributors"]
-version = "0.3.0-DEV"
+version = "0.4.0-DEV"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
