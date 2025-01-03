@@ -12,7 +12,7 @@ using MX2RKKY.utility: clamp_angle, sph2cart, range_of_nonmissing
 using MX2RKKY.lattice: IntCoords, neighbors, triangle_nodes
 
 export Configuration, MCSimulation, run!, acceptance_rates
-export min_energy, avg_energy, var_energy, avg_chirality, var_chirality
+export min_energy, avg_energy, var_energy, avg_chirality, var_chirality, specific_heat
 
 #
 # Configuration
@@ -604,6 +604,13 @@ end
 function var_chirality(sim::MCSimulation,
                        sample_range::Union{AbstractRange, Nothing} = nothing)
     return std(range_of_nonmissing(sim.measurements.chirality, sample_range))
+end
+
+"Extract specific heat of the system from a simulation structure."
+function specific_heat(sim::MCSimulation,
+                       sample_range::Union{AbstractRange, Nothing} = nothing)
+    E2 = range_of_nonmissing(sim.measurements.energy, sample_range) .^ 2
+    return sim.β^2 * (mean(E2) - avg_energy(sim, sample_range) ^ 2)
 end
 
 end # module montecarlo
