@@ -15,7 +15,7 @@ a parallelogram-shaped cluster of the triangular lattice with periodic boundary 
 The neighbors are listed in the clockwise order.
 The shape of the cluster is parametrized by two linear sizes, `L1` and `L2`.
 """
-function neighbors(i::IntCoords, L1::Int, L2::Int)::Vector{IntCoords}
+@inline function neighbors(i::IntCoords, L1::Int, L2::Int)::Vector{IntCoords}
     i1, i2 = i
     return [
         (mod(i1 + 1, L1), i2),
@@ -33,7 +33,7 @@ elementary triangle. The nodes belong to a parallelogram-shaped cluster with per
 boundary conditions and are listed in the clockwise order.
 `L1` and `L2` are linear sizes of the cluster.
 """
-function triangle_nodes(i::IntCoords, L1::Int, L2::Int)::Vector{IntCoords}
+@inline function triangle_nodes(i::IntCoords, L1::Int, L2::Int)::Vector{IntCoords}
     i1, i2 = i
     return [i, (i1, mod(i2 + 1, L2)), (mod(i1 + 1, L1), mod(i2 + 1, L2))]
 end

@@ -34,16 +34,22 @@ struct Configuration
 end
 
 """
-Make a completely polarized (ϕ = 0) in-plane configuration of spins `S`
-with given linear sizes `L1` and `L2`. Both linear sizes must be multiples of 3.
+Make an in-plane configuration of spins `S` corresponding to the 120° Néel state with a
+given chirality χ (either -1 or 1).
+Linear sizes of the configuration `L1` and `L2` must be multiples of 3.
 """
-function Configuration(L1::Int, L2::Int; S::Float64 = 1.0)
+function Configuration(L1::Int, L2::Int, χ::Int; S::Float64 = 1.0)
     @assert L1 > 0
     @assert L2 > 0
     @assert (L1 % 3 == 0) "L1 must be a multiple of 3"
     @assert (L2 % 3 == 0) "L2 must be a multiple of 3"
+    @assert χ ∈ (-1, 1)
     θ = OffsetArray(fill(π / 2, L1, L2), Origin(0))
-    ϕ = OffsetArray(fill(.0, L1, L2), Origin(0))
+    ϕ = OffsetArray(zeros(Float64, L1, L2), Origin(0))
+    ϕ_pattern = (χ == -1) ? (π / 2, 7π / 6, 11π / 6) : (π / 2, 11π / 6, 7π / 6)
+    for (i1, i2) in Base.product(0:(L1-1), 0:(L2-1))
+        ϕ[i1, i2] = ϕ_pattern[(i1 + i2) % 3 + 1]
+    end
     S_vec = [n[α] for α in 1:3, n in sph2cart.(S, θ, ϕ)]
     return Configuration(S, θ, ϕ, OffsetArray(S_vec, Origin(1, 0, 0)))
 end

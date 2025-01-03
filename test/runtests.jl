@@ -25,8 +25,12 @@ using Aqua
     end
 
     @testset "Configuration" begin
-        c1 = Configuration(3, 6)
-        c2 = Configuration(3, 6, MersenneTwister(123456))
+        cm1 = Configuration(9, 12, -1)
+        cp1 = Configuration(9, 12, 1)
+        @test all(montecarlo.chirality(cm1, i) == -1 for i in eachindex(cm1))
+        @test all(montecarlo.chirality(cp1, i) == 1 for i in eachindex(cp1))
+
+        c_rnd = Configuration(9, 12, MersenneTwister(123456))
     end
 
     @testset "Hamiltonians" begin
