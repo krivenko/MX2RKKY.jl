@@ -111,7 +111,7 @@ coordinate) node.
     @assert (isapprox(χ, -1, atol=1e-10) ||
              isapprox(χ, 0, atol=1e-10) ||
              isapprox(χ, 1, atol=1e-10))
-    return χ
+    return Int(round(χ))
 end
 
 #
@@ -295,6 +295,10 @@ mutable struct MCSimulation
     pair_int_energy::OffsetArray{Float64, 4}
     "Total energy of the system"
     energy::Float64
+    "Chirality of each triangle in the configuration"
+    chirality::OffsetArray{Int, 2}
+    "Chirality summed over all nodes"
+    chirality_sum::Int
     "Pseudo-random number generator"
     rng::MersenneTwister
     "Monte Carlo updates"
@@ -338,12 +342,17 @@ function MCSimulation(init_conf::Configuration,
     pair_int_energy_mat = reshape(pair_int_energy, N, N)
     @assert isapprox(pair_int_energy_mat, pair_int_energy_mat', atol=1e-10)
     @assert iszero(diag(pair_int_energy_mat))
-
     energy = sum(pair_int_energy)
+
+    χ = OffsetArray(Array{Int, 2}(undef, L1, L2), Origin(0))
+    for i in eachindex(init_conf)
+        χ[i...] = chirality(init_conf, i)
+    end
 
     return MCSimulation(β, Jpar, Jperp, enable_rkky ? V : nothing,
                         init_conf,
                         pair_int_energy, energy,
+                        χ, sum(χ),
                         rng,
                         [], zeros(Int, 2), zeros(Int, 2),
                         Measurements())
@@ -408,6 +417,8 @@ end
 mutable struct UpdateSingleSpin{Bool} <: AbstractUpdate
     "Integer coordinates of the spin to be updated"
     i::IntCoords
+    "Integer coordinates of the adjacent triangles"
+    adj_triangles::Vector{IntCoords}
     "Polar angle before update"
     θ_old::Float64
     "Azimuthal angle before update"
@@ -418,10 +429,13 @@ mutable struct UpdateSingleSpin{Bool} <: AbstractUpdate
     pair_int_energy_new::OffsetArray{Float64, 2}
     "Total energy change caused by the update"
     ΔE::Float64
+    "Chirality of the affected triangles after update"
+    χ_new::Vector{Int}
 
     UpdateSingleSpin(L1::Int, L2::Int, inplane::Bool) = new{inplane}(
-        (0, 0), .0, .0, zeros(3),
-        OffsetArray(zeros(Float64, L1, L2), Origin(0)), .0
+        (0, 0), fill((0, 0), 3), .0, .0, zeros(3),
+        OffsetArray(zeros(Float64, L1, L2), Origin(0)), .0,
+        zeros(Int, 3)
     )
 end
 
@@ -432,6 +446,9 @@ function propose!(update::UpdateSingleSpin, sim::MCSimulation)::Float64
     L1, L2 = size(sim.conf)
     update.i = (rand(sim.rng, 0:(L1-1)),
                 rand(sim.rng, 0:(L2-1)))
+    update.adj_triangles .= [update.i,
+                             (update.i[1], mod(update.i[2] - 1, L2)),
+                             (mod(update.i[1] - 1, L1), mod(update.i[2] - 1, L2))]
 
     update.θ_old = sim.conf.θ[update.i...]
     update.ϕ_old = sim.conf.ϕ[update.i...]
@@ -451,6 +468,11 @@ function propose!(update::UpdateSingleSpin, sim::MCSimulation)::Float64
 
     pair_int_energy_old = @view sim.pair_int_energy[:, :, update.i...]
     update.ΔE = 2 * (sum(update.pair_int_energy_new) - sum(pair_int_energy_old))
+
+    for (n, i) in enumerate(update.adj_triangles)
+        update.χ_new[n] = chirality(sim.conf, i)
+    end
+
     return exp(-sim.β * update.ΔE)
 end
 
@@ -459,6 +481,11 @@ function accept!(update::UpdateSingleSpin, sim::MCSimulation)
     sim.pair_int_energy[:, :, update.i...] .= update.pair_int_energy_new
     sim.pair_int_energy[update.i..., :, :] .= update.pair_int_energy_new
     sim.energy += update.ΔE
+    for (n, i) in enumerate(update.adj_triangles)
+        χ_old = sim.chirality[i...]
+        sim.chirality_sum += update.χ_new[n] - χ_old
+        sim.chirality[i...] = update.χ_new[n]
+    end
 end
 
 "Reject update of a single spin in the cluster"
@@ -543,6 +570,7 @@ function accept!(update::UpdateTriangle, sim::MCSimulation)
         sim.pair_int_energy[i..., :, :] .= update.pair_int_energy_new[:, :, n]
     end
     sim.energy += update.ΔE
+    # TODO: Update sim.chirality and sim.chirality_sum
 end
 
 "Reject update of a triangle"
@@ -565,7 +593,7 @@ function measure!(sim::MCSimulation)
 
     # Chirality
     L1, L2 = size(sim.conf)
-    m.chirality[m.count] = sum(i -> chirality(sim.conf, i), eachindex(sim.conf)) / (L1 * L2)
+    m.chirality[m.count] = sim.chirality_sum / (L1 * L2)
 end
 
 """

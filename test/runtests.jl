@@ -70,8 +70,8 @@ using Aqua
         β = 10.0
         Jpar = 2.0
         Jperp = 0.5
-        Vpar = 0.2
-        Vperp = 0.1
+        Vpar = 0.002
+        Vperp = 0.001
         λ = 0.1
 
         function energy_ref(S_vec)
@@ -99,6 +99,10 @@ using Aqua
              inplane=true,
              update_triangle_prob=0.2)
         @test sim.energy ≈ energy_ref(sim.conf.S_vec)
+        @show sim.chirality
+        @test all(sim.chirality[i...] ==
+                  montecarlo.chirality(sim.conf, i) for i in eachindex(sim.conf))
+        @test sim.chirality_sum == sum(sim.chirality)
 
         @show acceptance_rates(sim)
         @show min_energy(sim)
