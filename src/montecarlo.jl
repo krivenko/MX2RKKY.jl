@@ -7,6 +7,7 @@ using Random: AbstractRNG, MersenneTwister, rand
 using Statistics: mean, std
 using StatsBase: sample, Weights
 using ProgressMeter: @showprogress
+using Polyester: @batch
 
 using MX2RKKY.utility: clamp_angle, sph2cart, range_of_nonmissing
 using MX2RKKY.lattice: IntCoords, neighbors, triangle_nodes
@@ -47,7 +48,7 @@ function Configuration(L1::Int, L2::Int, χ::Int; S::Float64 = 1.0)
     θ = OffsetArray(fill(π / 2, L1, L2), Origin(0))
     ϕ = OffsetArray(zeros(Float64, L1, L2), Origin(0))
     ϕ_pattern = (χ == -1) ? (π / 2, 7π / 6, 11π / 6) : (π / 2, 11π / 6, 7π / 6)
-    for (i1, i2) in Base.product(0:(L1-1), 0:(L2-1))
+    @batch for (i1, i2) in Base.product(0:(L1-1), 0:(L2-1))
         ϕ[i1, i2] = ϕ_pattern[(i1 + i2) % 3 + 1]
     end
     S_vec = [n[α] for α in 1:3, n in sph2cart.(S, θ, ϕ)]
@@ -133,7 +134,7 @@ neighbors. Add it to a given pair interaction energy array.
                                      Jpar::Float64, Jperp::Float64)
     L1, L2 = size(conf)
     S_i = conf.S_vec[:, i...]
-    for j in neighbors(i, L1, L2)
+    @batch for j in neighbors(i, L1, L2)
         S_j = conf.S_vec[:, j...]
         E = Jpar * (S_i[1] * S_j[1] + S_i[2] * S_j[2]) + Jperp * S_i[3] * S_j[3]
         pair_int_energy[j...] += E / 2
@@ -244,7 +245,7 @@ Add it to a given pair interaction array.
                                       V::OffsetArray{Float64, 4})
     L1, L2 = size(conf)
     S_i = conf.S_vec[:, i...]
-    for j in eachindex(conf)
+    @batch for j in eachindex(conf)
         (i == j) && continue # No self-interaction
         S_j = conf.S_vec[:, j...]
         Δi = j .- i
@@ -565,7 +566,11 @@ function measure!(sim::MCSimulation)
 
     # Chirality
     L1, L2 = size(sim.conf)
-    m.chirality[m.count] = sum(i -> chirality(sim.conf, i), eachindex(sim.conf)) / (L1 * L2)
+    χ = 0
+    @batch reduction=((+, χ)) for i in eachindex(sim.conf)
+        χ += chirality(sim.conf, i)
+    end
+    m.chirality[m.count] = χ / (L1 * L2)
 end
 
 """
