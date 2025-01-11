@@ -566,7 +566,7 @@ function measure!(sim::MCSimulation)
 
     # Chirality
     L1, L2 = size(sim.conf)
-    χ = 0
+    χ::Float64 = 0
     @batch reduction=((+, χ)) for i in eachindex(sim.conf)
         χ += chirality(sim.conf, i)
     end
