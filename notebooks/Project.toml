@@ -1,3 +1,4 @@
 [deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 MX2RKKY = "72e1c527-8a46-4567-9268-d70aedf73814"
 PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
