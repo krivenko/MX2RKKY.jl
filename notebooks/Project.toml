@@ -1,4 +1,6 @@
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CurveFit = "5a033b19-8c74-5913-a970-47c3779ef25c"
 MX2RKKY = "72e1c527-8a46-4567-9268-d70aedf73814"
 PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
