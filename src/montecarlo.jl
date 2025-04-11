@@ -263,18 +263,19 @@ mutable struct Measurements
     count::Int
     "Samples: Energy of the system"
     energy::Vector{Union{Float64, Missing}}
+    "Samples: Magnetization"
+    magnetization::Array{Union{Float64, Missing}, 2}
     "Samples: Chirality"
     chirality::Vector{Union{Float64, Missing}}
-    Measurements() = new(0, [], [])
+    Measurements() = new(0, [], zeros(3, 0), [])
 end
 
 "Clear measurement results and pre-allocate sample arrays"
 function reset!(m::Measurements, n_samples::Int = 0)
     m.count = 0
-    resize!(m.energy, n_samples)
-    resize!(m.chirality, n_samples)
-    fill!(m.energy, missing)
-    fill!(m.chirality, missing)
+    m.energy = fill(missing, n_samples)
+    m.magnetization = fill(missing, 3, n_samples)
+    m.chirality = fill(missing, n_samples)
 end
 
 "Base type of Monte Carlo updates"
@@ -560,17 +561,26 @@ end
 
 "Update measurement data"
 function measure!(sim::MCSimulation)
-    m = sim.measurements
-    m.count += 1
-    m.energy[m.count] = sim.energy
+    measures = sim.measurements
+    measures.count += 1
+    measures.energy[measures.count] = sim.energy
+
+    L1, L2 = size(sim.conf)
+    N = L1 * L2
+
+    # Magnetization
+    m = zeros(Float64, 3)
+    @batch reduction=((+, m)) for i in eachindex(sim.conf)
+        m .+= sim.conf.S_vec[:, i...]
+    end
+    measures.magnetization[:, measures.count] .= m / N
 
     # Chirality
-    L1, L2 = size(sim.conf)
     χ::Float64 = 0
     @batch reduction=((+, χ)) for i in eachindex(sim.conf)
         χ += chirality(sim.conf, i)
     end
-    m.chirality[m.count] = χ / (L1 * L2)
+    measures.chirality[measures.count] = χ / N
 end
 
 """
