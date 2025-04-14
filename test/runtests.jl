@@ -106,6 +106,8 @@ using Aqua
         @show var_energy(sim)
         @show avg_chirality(sim)
         @show var_chirality(sim)
+        @show binder_chirality(sim)
+        @show corr_length_chirality(sim)
         @show specific_heat(sim)
     end
 
