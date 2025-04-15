@@ -1,6 +1,7 @@
 using MX2RKKY
 using MX2RKKY.utility: range_of_nonmissing
 using MX2RKKY.montecarlo
+using MX2RKKY.observables
 
 using Test
 using LinearAlgebra: dot
@@ -104,11 +105,12 @@ using Aqua
         @show min_energy(sim)
         @show avg_energy(sim)
         @show var_energy(sim)
+        @show specific_heat(sim)
         @show avg_chirality(sim)
         @show var_chirality(sim)
+        @show susc_chirality(sim)
         @show binder_chirality(sim)
         @show corr_length_chirality(sim)
-        @show specific_heat(sim)
     end
 
 end

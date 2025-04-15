@@ -4,17 +4,14 @@ using OffsetArrays: OffsetArray, Origin
 using LinearAlgebra: dot, issymmetric, diag
 using SpecialFunctions: besselj0, besselj1, bessely0, bessely1
 using Random: AbstractRNG, MersenneTwister, rand
-using Statistics: mean, std
 using StatsBase: sample, Weights
 using ProgressMeter: @showprogress
 using Polyester: @batch
 
-using MX2RKKY.utility: clamp_angle, sph2cart, range_of_nonmissing
+using MX2RKKY.utility: clamp_angle, sph2cart
 using MX2RKKY.lattice: IntCoords, neighbors, triangle_nodes, l2c
 
 export Configuration, MCSimulation, run!, acceptance_rates
-export min_energy, avg_energy, var_energy, specific_heat
-export avg_chirality, var_chirality, binder_chirality, corr_length_chirality
 
 #
 # Configuration
@@ -274,10 +271,11 @@ mutable struct Measurements
     fourier_weights_at_q_min::OffsetArray{ComplexF64, 2}
 
     function Measurements(conf::Configuration)
-        L1, _ = size(conf)
+        L1, L2 = size(conf)
+        N = L1 * L2
         q_min = (2π / L1, 0.0)
         fourier_weights_at_q_min = OffsetArray(
-            [exp(-im * dot(q_min, l2c(i...))) for i in eachindex(conf)],
+            [exp(-im * dot(q_min, l2c(i...))) for i in eachindex(conf)] / N,
             Origin(0)
         )
         return new(0, [], zeros(3, 0), [], [], fourier_weights_at_q_min)
@@ -583,18 +581,26 @@ function measure!(sim::MCSimulation)
     L1, L2 = size(sim.conf)
     N = L1 * L2
 
-    m = zeros(Float64, 3)   # Magnetization
-    χ::Float64 = 0          # Chirality at q=0
-    χ_at_q_min::ComplexF64 = 0 # Chirality at q = q_min = (2π / L_1) e_x
-    @batch reduction=((+, m), (+, χ)) for i in eachindex(sim.conf)
-        m .+= sim.conf.S_vec[:, i...]
+    # Magnetization
+    mx::Float64 = 0
+    my::Float64 = 0
+    mz::Float64 = 0
+    χ::Float64 = 0                   # Chirality at q=0
+    χ_at_q_min::ComplexF64 = 0       # Chirality at q = q_min = (2π / L_1) e_x
+    @batch reduction=((+, mx), (+, my), (+, mz),
+                      (+, χ), (+, χ_at_q_min)) for i in eachindex(sim.conf)
+        # Magnetization
+        mx += sim.conf.S_vec[1, i...]
+        my += sim.conf.S_vec[2, i...]
+        mz += sim.conf.S_vec[3, i...]
 
+        # Chirality
         χ_i = chirality(sim.conf, i)
         χ += χ_i
         χ_at_q_min += measures.fourier_weights_at_q_min[i...] * χ_i
     end
 
-    measures.magnetization[:, measures.count] .= m / N
+    measures.magnetization[:, measures.count] .= [mx, my, mz] / N
     measures.chirality[measures.count] = χ / N
     measures.chirality_at_q_min[measures.count] = χ_at_q_min / N
 end
@@ -605,67 +611,6 @@ Extract acceptance rates of the Monte Carlo updates from a simulation structure.
 function acceptance_rates(sim::MCSimulation)
     rates = sim.n_accepted ./ sim.n_proposed
     return Dict(typeof(u) => r for (u, r) in zip(sim.updates, rates))
-end
-
-# Measurements related to energy
-
-"Extract the lowest encountered energy from a simulation structure."
-function min_energy(sim::MCSimulation,
-                    sample_range::Union{AbstractRange, Nothing} = nothing)
-    return minimum(range_of_nonmissing(sim.measurements.energy, sample_range))
-end
-
-"Extract average energy of the system from a simulation structure."
-function avg_energy(sim::MCSimulation,
-                    sample_range::Union{AbstractRange, Nothing} = nothing)
-    return mean(range_of_nonmissing(sim.measurements.energy, sample_range))
-end
-
-"Extract Monte Carlo variance of energy from a simulation structure."
-function var_energy(sim::MCSimulation,
-                    sample_range::Union{AbstractRange, Nothing} = nothing)
-    return std(range_of_nonmissing(sim.measurements.energy, sample_range))
-end
-
-"Extract specific heat of the system from a simulation structure."
-function specific_heat(sim::MCSimulation,
-                       sample_range::Union{AbstractRange, Nothing} = nothing)
-    E2 = range_of_nonmissing(sim.measurements.energy, sample_range) .^ 2
-    return sim.β^2 * (mean(E2) - avg_energy(sim, sample_range) ^ 2)
-end
-
-# Measurements related to chirality
-
-"Extract average chirality from a simulation structure."
-function avg_chirality(sim::MCSimulation,
-                       sample_range::Union{AbstractRange, Nothing} = nothing)
-    return mean(range_of_nonmissing(sim.measurements.chirality, sample_range))
-end
-
-"Extract Monte Carlo variance of chirality from a simulation structure."
-function var_chirality(sim::MCSimulation,
-                       sample_range::Union{AbstractRange, Nothing} = nothing)
-    return std(range_of_nonmissing(sim.measurements.chirality, sample_range))
-end
-
-"Extract Binder cumulant of chirality from a simulation structure."
-function binder_chirality(sim::MCSimulation,
-                          sample_range::Union{AbstractRange, Nothing} = nothing)
-    χ_range = range_of_nonmissing(sim.measurements.chirality, sample_range)
-    χ2_avg = mean(χ_range .^ 2)
-    χ4_avg = mean(χ_range .^ 4)
-    return 3 / 2 * (1 - χ4_avg / (2 * χ2_avg^2))
-end
-
-"Extract correlation length of chirality from a simulation structure."
-function corr_length_chirality(sim::MCSimulation,
-                               sample_range::Union{AbstractRange, Nothing} = nothing)
-    χ2_avg = mean(range_of_nonmissing(sim.measurements.chirality, sample_range) .^ 2)
-    χ_at_q_min_2_avg = mean(
-        abs.(range_of_nonmissing(sim.measurements.chirality_at_q_min, sample_range)) .^ 2
-    )
-    L1, _ = size(sim.conf)
-    return sqrt((χ2_avg / χ_at_q_min_2_avg) - 1) / (2 * sin(π / L1))
 end
 
 end # module montecarlo
