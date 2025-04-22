@@ -15,8 +15,13 @@ using Aqua
 
     @testset "Utility" begin
         a = [1, 2, missing, 4, missing, missing, 7, 8, 9, missing]
-        @test range_of_nonmissing(a, 2:5) == [2, 4, 7, 8]
         @test range_of_nonmissing(a) == [1, 2, 4, 7, 8, 9]
+        @test range_of_nonmissing(a, 2:5) == [2, 4, 7, 8]
+
+        aa = [1  2  missing 4       missing missing 7  8  9       missing
+              10 11 12      missing missing 13      14 15 missing 16]
+        @test range_of_nonmissing(aa) == [1 2 7 8; 10 11 14 15]
+        @test range_of_nonmissing(aa, 2:3) == [2 7; 11 14]
     end
 
     @testset "Lattice" begin

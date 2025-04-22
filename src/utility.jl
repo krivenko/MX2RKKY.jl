@@ -17,15 +17,17 @@ function clamp_angle(ϕ::Float64)
 end
 
 """
-Take a range of non-missing elements of a vector. By default, all non-missing elements
-are taken.
+Iterate along the last axis of a given array and discard all slices containing at least one
+missing value. Then take a range over the last axis.
+By default, all non-missing elements are taken.
 """
-function range_of_nonmissing(v::Vector, range::Union{AbstractRange, Nothing} = nothing)
-    v_nm = collect(skipmissing(v))
+function range_of_nonmissing(a::AbstractArray,
+                             range::Union{AbstractRange, Nothing} = nothing)
+    a_nm = stack(filter(s -> !any(ismissing.(s)), eachslice(a, dims=ndims(a))))
     if isnothing(range)
-        range = axes(v_nm, 1)
+        range = axes(a_nm, ndims(a_nm))
     end
-    return v_nm[range]
+    return selectdim(a_nm, ndims(a_nm), range)
 end
 
 end # module utility
