@@ -116,6 +116,9 @@ using Aqua
         @show susc_chirality(sim)
         @show binder_chirality(sim)
         @show corr_length_chirality(sim)
+        @show susc_spin_K(sim)
+        @show binder_spin_K(sim)
+        @show corr_length_spin_K(sim)
     end
 
 end

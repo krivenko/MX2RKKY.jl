@@ -1,5 +1,6 @@
 module observables
 
+using LinearAlgebra: norm
 using Statistics: mean, std
 
 using MX2RKKY.utility: range_of_nonmissing
@@ -7,6 +8,7 @@ using MX2RKKY.montecarlo: MCSimulation
 
 export min_energy, avg_energy, var_energy, specific_heat
 export avg_chirality, var_chirality, susc_chirality, binder_chirality, corr_length_chirality
+export susc_spin_K, binder_spin_K, corr_length_spin_K
 
 const OptionalAbstractRange = Union{AbstractRange, Nothing}
 
@@ -66,7 +68,7 @@ function binder_chirality(chirality_samples::AbstractVector,
     χ_range = range_of_nonmissing(chirality_samples, sample_range)
     χ2_avg = mean(χ_range .^ 2)
     χ4_avg = mean(χ_range .^ 4)
-    return 3 / 2 * (1 - χ4_avg / (2 * χ2_avg^2))
+    return 3 / 2 * (1 - χ4_avg / (2 * χ2_avg ^ 2))
 end
 
 "Extract correlation length of chirality from arrays of chirality samples."
@@ -80,6 +82,41 @@ function corr_length_chirality(
         abs.(range_of_nonmissing(chirality_at_q_min_samples, sample_range)) .^ 2
     )
     return sqrt((χ2_avg / χ_at_q_min_2_avg) - 1) / (2 * sin(π / L1))
+end
+
+"Extract K-point spin susceptibility from an array of magnetization samples."
+function susc_spin_K(magnetization_at_K_samples::AbstractMatrix,
+                     N::Int,
+                     β::Float64,
+                     sample_range::OptionalAbstractRange = nothing)
+    magn_range = range_of_nonmissing(magnetization_at_K_samples, sample_range)
+    return N * β * mean(map(norm, eachslice(magn_range, dims=2)) .^ 2)
+end
+
+"Extract K-point spin Binder cumulant from an array of magnetization samples."
+function binder_spin_K(magnetization_at_K_samples::AbstractMatrix,
+                       sample_range::OptionalAbstractRange = nothing)
+    magn_range = range_of_nonmissing(magnetization_at_K_samples, sample_range)
+    magn_norm = map(norm, eachslice(magn_range, dims=2))
+    magn2_avg = mean(magn_norm .^ 2)
+    magn4_avg = mean(magn_norm .^ 4)
+    return 2.0 - magn4_avg / (magn2_avg ^ 2)
+end
+
+"Extract correlation length of K-point magnetization from arrays of magnetization samples."
+function corr_length_spin_K(magnetization_at_K_samples::AbstractMatrix,
+                            magnetization_at_K_q_min_samples::AbstractMatrix,
+                            L1::Int,
+                            sample_range::OptionalAbstractRange = nothing)
+    magn_norm = map(norm, eachslice(
+        range_of_nonmissing(magnetization_at_K_samples, sample_range), dims=2)
+    )
+    magn_at_q_min_range = map(norm, eachslice(
+        range_of_nonmissing(magnetization_at_K_q_min_samples, sample_range), dims=2)
+    )
+    magn2_avg = mean(magn_norm .^ 2)
+    magn_at_q_min_2_avg = mean(magn_at_q_min_range .^ 2)
+    return sqrt((magn2_avg / magn_at_q_min_2_avg) - 1) / (2 * sin(π / L1))
 end
 
 #
@@ -134,6 +171,26 @@ function corr_length_chirality(sim::MCSimulation,
                                  sim.measurements.chirality_at_q_min,
                                  size(sim.conf)[1],
                                  sample_range)
+end
+
+"Extract K-point spin susceptibility from a simulation structure."
+function susc_spin_K(sim::MCSimulation, sample_range::OptionalAbstractRange = nothing)
+    L1, L2 = size(sim.conf)
+    return susc_spin_K(sim.measurements.magnetization_at_K, L1 * L2, sim.β, sample_range)
+end
+
+"Extract K-point spin Binder cumulant from a simulation structure."
+function binder_spin_K(sim::MCSimulation, sample_range::OptionalAbstractRange = nothing)
+    return binder_spin_K(sim.measurements.magnetization_at_K, sample_range)
+end
+
+"Extract correlation length of K-point magnetization from a simulation structure."
+function corr_length_spin_K(sim::MCSimulation,
+                            sample_range::OptionalAbstractRange = nothing)
+    return corr_length_spin_K(sim.measurements.magnetization_at_K,
+                              sim.measurements.magnetization_at_K_q_min,
+                              size(sim.conf)[1],
+                              sample_range)
 end
 
 end # module observables
