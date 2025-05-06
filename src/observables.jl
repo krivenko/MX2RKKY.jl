@@ -81,7 +81,7 @@ function corr_length_chirality(
     χ_at_q_min_2_avg = mean(
         abs.(range_of_nonmissing(chirality_at_q_min_samples, sample_range)) .^ 2
     )
-    return sqrt((χ2_avg / χ_at_q_min_2_avg) - 1) / (2 * sin(π / L1))
+    return sqrt(complex((χ2_avg / χ_at_q_min_2_avg) - 1)) / (2 * sin(π / L1))
 end
 
 "Extract K-point spin susceptibility from an array of magnetization samples."
@@ -116,7 +116,7 @@ function corr_length_spin_K(magnetization_at_K_samples::AbstractMatrix,
     )
     magn2_avg = mean(magn_norm .^ 2)
     magn_at_q_min_2_avg = mean(magn_at_q_min_range .^ 2)
-    return sqrt((magn2_avg / magn_at_q_min_2_avg) - 1) / (2 * sin(π / L1))
+    return sqrt(complex((magn2_avg / magn_at_q_min_2_avg) - 1)) / (2 * sin(π / L1))
 end
 
 #
