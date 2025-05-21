@@ -59,7 +59,8 @@ function susc_chirality(chirality_samples::AbstractVector,
                         N::Int,
                         β::Float64,
                         sample_range::OptionalAbstractRange = nothing)
-    return N * β * mean(range_of_nonmissing(chirality_samples, sample_range) .^ 2)
+    χ_range = range_of_nonmissing(chirality_samples, sample_range)
+    return N * β * (mean(χ_range .^ 2) - mean(χ_range) ^ 2)
 end
 
 "Extract Binder cumulant of chirality from an array of chirality samples."
@@ -90,7 +91,9 @@ function susc_spin_K(magnetization_at_K_samples::AbstractMatrix,
                      β::Float64,
                      sample_range::OptionalAbstractRange = nothing)
     magn_range = range_of_nonmissing(magnetization_at_K_samples, sample_range)
-    return N * β * mean(map(norm, eachslice(magn_range, dims=2)) .^ 2)
+    magn_mean = mean(magn_range, dims=2)
+    return N * β * (mean(map(norm, eachslice(magn_range, dims=2)) .^ 2)
+                    - norm(magn_mean) ^ 2)
 end
 
 "Extract K-point spin Binder cumulant from an array of magnetization samples."
