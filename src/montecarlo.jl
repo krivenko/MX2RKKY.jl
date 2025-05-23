@@ -391,12 +391,10 @@ Run Monte Carlo simulation.
 `n_warmup_cycles` - Number of warm-up cycles.
 `cycle_length` - Number of MC updates per cycle.
 `inplane` - Update only the azimuthal angles of the spins.
-`update_triangle_prob` - Proposal probability of UpdateTriangle.
 """
 function run!(sim::MCSimulation;
               n_cycles::Int, n_warmup_cycles::Int, cycle_length::Int = 100,
-              inplane::Bool = true,
-              update_triangle_prob::Float64 = .0)
+              inplane::Bool = true)
     @assert n_cycles >= 0
     @assert n_warmup_cycles >= 0
     @assert cycle_length > 0
@@ -405,8 +403,7 @@ function run!(sim::MCSimulation;
     L1, L2 = size(sim.conf)
     empty!(sim.updates)
     push!(sim.updates, UpdateSingleSpin(L1, L2, inplane))
-    push!(sim.updates, UpdateTriangle(L1, L2))
-    update_weights = [1.0 - update_triangle_prob, update_triangle_prob]
+    update_weights = [1.0]
 
     # Initialize measurements
     reset!(sim.measurements, n_cycles)
@@ -500,91 +497,6 @@ function reject!(update::UpdateSingleSpin, sim::MCSimulation)
     sim.conf.θ[update.i...] = update.θ_old
     sim.conf.ϕ[update.i...] = update.ϕ_old
     sim.conf.S_vec[:, update.i...] .= update.S_vec_old
-end
-
-#
-# UpdateTriangle
-#
-
-"""
-Monte Carlo update: Rotate spins on a randomly selected elementary triangle by the same
-random azimuthal angle.
-"""
-mutable struct UpdateTriangle <: AbstractUpdate
-    "Integer coordinates of the spins to be updated"
-    i::Vector{IntCoords}
-    "Azimuthal angles before update"
-    ϕ_old::Vector{Float64}
-    "Cartesian components of the spins before update"
-    S_vec_old::Array{Float64, 2}
-    "Contributions of the selected spins to system's energy after update"
-    pair_int_energy_new::OffsetArray{Float64, 3}
-    "Total energy change caused by the update"
-    ΔE::Float64
-
-    UpdateTriangle(L1::Int, L2::Int) = new(
-        fill((0, 0), 3),
-        zeros(Float64, 3),
-        zeros(Float64, 3, 3),
-        OffsetArray(zeros(Float64, L1, L2, 3), Origin(0, 0, 1)),
-        .0
-    )
-end
-
-"Propose update of a triangle"
-function propose!(update::UpdateTriangle, sim::MCSimulation)::Float64
-    L1, L2 = size(sim.conf)
-    update.i .= triangle_nodes((rand(sim.rng, 0:(L1-1)), rand(sim.rng, 0:(L2-1))), L1, L2)
-    Δϕ = 2π * rand(sim.rng, Float64)
-
-    for (n, i) in enumerate(update.i)
-        update.ϕ_old[n] = sim.conf.ϕ[i...]
-        update.S_vec_old[:, n] .= sim.conf.S_vec[:, i...]
-        ϕ = mod(sim.conf.ϕ[i...] + Δϕ, 2π)
-        update_spin!(sim.conf, i, sim.conf.θ[i...], ϕ)
-    end
-
-    update.ΔE = 0
-    for (n, i) in enumerate(update.i)
-        pair_int_energy_new = @view update.pair_int_energy_new[:, :, n]
-        pair_int_energy_new .= 0;
-        xxz_energy_contrib!(sim.conf, i, pair_int_energy_new,
-                            Jpar=sim.Jpar, Jperp=sim.Jperp)
-        if !isnothing(sim.V)
-            rkky_energy_contrib!(sim.conf, i, pair_int_energy_new, V=sim.V)
-        end
-
-        pair_int_energy_old = @view sim.pair_int_energy[i..., :, :]
-        update.ΔE += 2 * (sum(pair_int_energy_new) - sum(pair_int_energy_old))
-    end
-
-    # Subtract the double counting terms stemming from the interaction between the 3
-    # selected nodes
-    update.ΔE -= 2 * (update.pair_int_energy_new[update.i[2]..., 1] -
-                      sim.pair_int_energy[update.i[1]..., update.i[2]...])
-    update.ΔE -= 2 * (update.pair_int_energy_new[update.i[3]..., 2] -
-                      sim.pair_int_energy[update.i[2]..., update.i[3]...])
-    update.ΔE -= 2 * (update.pair_int_energy_new[update.i[1]..., 3] -
-                      sim.pair_int_energy[update.i[3]..., update.i[1]...])
-
-    return exp(-sim.β * update.ΔE)
-end
-
-"Accept update of a triangle"
-function accept!(update::UpdateTriangle, sim::MCSimulation)
-    for (n, i) in enumerate(update.i)
-        sim.pair_int_energy[:, :, i...] .= update.pair_int_energy_new[:, :, n]
-        sim.pair_int_energy[i..., :, :] .= update.pair_int_energy_new[:, :, n]
-    end
-    sim.energy += update.ΔE
-end
-
-"Reject update of a triangle"
-function reject!(update::UpdateTriangle, sim::MCSimulation)
-    for (n, i) in enumerate(update.i)
-        sim.conf.ϕ[i...] = update.ϕ_old[n]
-        sim.conf.S_vec[:, i...] .= update.S_vec_old[:, n]
-    end
 end
 
 #

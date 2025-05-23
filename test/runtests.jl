@@ -102,8 +102,7 @@ using Aqua
              n_cycles=500,
              n_warmup_cycles=100,
              cycle_length=50,
-             inplane=true,
-             update_triangle_prob=0.2)
+             inplane=true)
         @test sim.energy ≈ energy_ref(sim.conf.S_vec)
 
         @show acceptance_rates(sim)
