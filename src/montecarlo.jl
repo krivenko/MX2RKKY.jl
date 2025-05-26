@@ -155,9 +155,9 @@ function rkky_int(i::IntCoords, Vpar::Float64, Vperp::Float64, λ::Float64)
     r = sqrt(i[1]^2 - i[1] * i[2] + i[2]^2) # r = |i1 a1 + i2 a2| / a0
     ϕ = 8π / 3 * (i[1] - i[2] / 2)
     v = besselj0(λ * r) * bessely0(λ * r) + besselj1(λ * r) * bessely1(λ * r)
-    return [ Vpar*cos(ϕ) Vpar*sin(ϕ) 0;
-            -Vpar*sin(ϕ) Vpar*cos(ϕ) 0;
-             0           0           Vperp] .* v
+    return [Vpar*cos(ϕ) -Vpar*sin(ϕ) 0;
+            Vpar*sin(ϕ)  Vpar*cos(ϕ) 0;
+            0            0           Vperp] .* v
 end
 
 """
