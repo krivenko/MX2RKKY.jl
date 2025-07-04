@@ -41,7 +41,9 @@ function plot_conf(conf::Configuration)
 
     # Draw spins
     for i in eachindex(conf)
-        Sx, Sy = 0.5 * conf.S_vec[1:2, i...] ./ conf.S
+        Sx = 0.5 * cos.(conf.θ)
+        Sy = 0.5 * sin.(conf.θ)
+
         x, y = l2c(i...)
         plt.arrow(x - Sx/2, y - Sy/2, Sx, Sy, color="red", head_width=0.1)
     end

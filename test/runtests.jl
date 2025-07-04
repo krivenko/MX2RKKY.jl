@@ -45,25 +45,18 @@ using Aqua
 
         conf = Configuration(L1, L2, MersenneTwister(123456))
 
-        Vpar = 3.0
-        Vperp = 2.0
+        V = 3.0
         λ = 0.1
 
         i = (3, 2)
 
-        @test montecarlo.rkky_int(i, Vpar, Vperp, λ) ≈ [
-            1.821551601453564 -3.1550199223260273 0.;
-            3.1550199223260273 1.821551601453564 0.;
-            0. 0. -2.428735468604752
-        ]
-        @test isapprox(montecarlo.renorm_rkky_int(i, Vpar, Vperp, λ,
-                                                  L1=96, L2=150, maxshells=100, atol=1e-4),
-                       [1.8288029675935291	-3.167579656904715	0.;
-                        3.167579656904715	1.8288029675935291	0.;
-                        0.	0.	-2.4384039567913622],
-                       atol=1e-3)
+        @test montecarlo.rkky_int(i, V, λ) * cos(montecarlo.rkky_angle(i)) ≈
+              1.821551601453564
+        @test montecarlo.rkky_int(i, V, λ) * sin(montecarlo.rkky_angle(i)) ≈
+              3.1550199223260273
 
-        V = montecarlo.make_rkky_int_tensor(L1, L2, Vpar, Vperp, λ, renormalize=false)
+        Varr = montecarlo.make_rkky_int_array(L1, L2, V, λ)
+        ϕarr = montecarlo.make_rkky_angle_array(L1, L2)
     end
 
     @testset "MCSimulation" begin
@@ -71,39 +64,30 @@ using Aqua
         L2 = 15
 
         rng = MersenneTwister(123456)
-        conf = Configuration(L1, L2, rng, inplane=true)
+        conf = Configuration(L1, L2, rng)
 
         β = 10.0
-        Jpar = 2.0
-        Jperp = 0.5
-        Vpar = 0.2
-        Vperp = 0.1
+        J = 2.0
+        V = 0.2
         λ = 0.1
 
-        function energy_ref(S_vec)
-            E = 0.5 * sum(
-                 Jpar * (S_vec[1, i...] * S_vec[1, j...] + S_vec[2, i...] * S_vec[2, j...])
-                 + Jperp * S_vec[3, i...] * S_vec[3, j...]
+        function energy_ref(θ)
+            E = 0.5 * sum(J * cos(θ[i...] - θ[j...])
                  for i in eachindex(sim.conf), j in eachindex(sim.conf)
                  if (j ∈ montecarlo.neighbors(i, L1, L2))
             )
             if !isnothing(sim.V)
-                E += sum(dot(S_vec[:, i...], sim.V[:, :, (j .- i)...], S_vec[:, j...])
+                E += sum(sim.V[(j .- i)...] * cos(θ[i...] - θ[j...] - sim.ϕ[(j .- i)...])
                          for i in eachindex(sim.conf), j in eachindex(sim.conf) if i != j)
             end
             return E
         end
 
-        sim = MCSimulation(conf, rng, β=β, Jpar=Jpar, Jperp=Jperp,
-                           Vpar=Vpar, Vperp=Vperp, λ=λ, Vrenormalize=false)
-        @test sim.energy ≈ energy_ref(sim.conf.S_vec)
+        sim = MCSimulation(conf, rng, β=β, J=J, V=V, λ=λ)
+        @test sim.energy ≈ energy_ref(sim.conf.θ)
 
-        run!(sim,
-             n_cycles=500,
-             n_warmup_cycles=100,
-             cycle_length=50,
-             inplane=true)
-        @test sim.energy ≈ energy_ref(sim.conf.S_vec)
+        run!(sim, n_cycles=500, n_warmup_cycles=100, cycle_length=50)
+        @test sim.energy ≈ energy_ref(sim.conf.θ)
 
         @show acceptance_rates(sim)
         @show min_energy(sim)
