@@ -1,10 +1,11 @@
 using MX2RKKY
 using MX2RKKY.utility: range_of_nonmissing
+using MX2RKKY.lattice: l2c, neighbor_shifts, neighbors
 using MX2RKKY.montecarlo
 using MX2RKKY.observables
 
 using Test
-using LinearAlgebra: dot
+using LinearAlgebra: dot, norm
 using Random: MersenneTwister
 using Aqua
 
@@ -25,8 +26,12 @@ using Aqua
     end
 
     @testset "Lattice" begin
+        @test norm.([l2c(s...) for s in neighbor_shifts(Val(1))]) ≈ ones(6)
+        @test norm.([l2c(s...) for s in neighbor_shifts(Val(2))]) ≈ √3 * ones(6)
+        @test norm.([l2c(s...) for s in neighbor_shifts(Val(3))]) ≈ 2.0 * ones(6)
+
         L1, L2 = 3, 6
-        @test montecarlo.neighbors((0, 0), L1, L2) ==
+        @test neighbors((0, 0), L1, L2) ==
               [(1, 0), (0, 5), (2, 5), (2, 0), (0, 1), (1, 1)]
     end
 
