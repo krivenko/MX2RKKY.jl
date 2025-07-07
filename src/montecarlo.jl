@@ -9,7 +9,7 @@ using ProgressMeter: @showprogress
 using Polyester: @batch
 
 using MX2RKKY.utility: clamp_angle
-using MX2RKKY.lattice: IntCoords, neighbors, triangle_nodes, l2c
+using MX2RKKY.lattice: IntCoords, neighbor_shifts, periodize, neighbors, triangle_nodes, l2c
 
 export Configuration, MCSimulation, run!, acceptance_rates
 
@@ -30,8 +30,8 @@ Make a configuration of spins corresponding to the 120° Néel state with a give
 function Configuration(L1::Int, L2::Int, χ::Int)
     @assert L1 > 0
     @assert L2 > 0
-    @assert (L1 % 3 == 0) "L1 must be a multiple of 3"
-    @assert (L2 % 3 == 0) "L2 must be a multiple of 3"
+    @assert isodd(L1) && (L1 % 3 == 0) "L1 must be odd and a multiple of 3"
+    @assert isodd(L2) && (L2 % 3 == 0) "L2 must be odd and a multiple of 3"
     @assert χ ∈ (-1, 1)
     θ = OffsetArray(zeros(Float64, L1, L2), Origin(0))
     θ_pattern = (χ == -1) ? (π / 2, 7π / 6, 11π / 6) : (π / 2, 11π / 6, 7π / 6)
@@ -49,8 +49,8 @@ Both linear sizes must be multiples of 3.
 function Configuration(L1::Int, L2::Int, rng::AbstractRNG)
     @assert L1 > 0
     @assert L2 > 0
-    @assert (L1 % 3 == 0) "L1 must be a multiple of 3"
-    @assert (L2 % 3 == 0) "L2 must be a multiple of 3"
+    @assert isodd(L1) && (L1 % 3 == 0) "L1 must be odd and a multiple of 3"
+    @assert isodd(L2) && (L2 % 3 == 0) "L2 must be odd and a multiple of 3"
     return Configuration(OffsetArray(2π * rand(rng, L1, L2), Origin(0)))
 end
 
@@ -140,20 +140,20 @@ rkky_angle(i::IntCoords) = 8π / 3 * (i[1] - i[2] / 2)
 """
 Make an array of RKKY interactions V_{i1, i2}.
 
-i1 and i2 are integer coordinates from the ranges (1-L1):(L1-1) and (1-L2):(L2-1)
-respectively.
+i1 and i2 are integer coordinates from the ranges -(L1 - 1)/2:(L1 - 1)/2 and
+-(L2 - 1)/2:(L2 - 1)/2 respectively.
 
 `L1` and `L2` - linear sizes of the cluster.
 `V` - RKKY interaction constant V.
 `λ` - interaction range parameter k_F a0.
 """
 function make_rkky_int_array(L1::Int, L2::Int, V::Float64, λ::Float64)
-    i1r = (1-L1):(L1-1) # TODO: -div(L1, 2):div(L1, 2)
-    i2r = (1-L2):(L2-1) # TODO: -div(L2, 2):div(L2, 2)
-    Varr = OffsetArray(Array{Float64, 2}(undef, length(i1r), length(i2r)), i1r, i2r)
-    for i in CartesianIndices(Varr)
-        (i[1] == 0 && i[2] == 0) && continue
-        Varr[i] = rkky_int(Tuple(i), V, λ)
+    i1r = -div(L1 - 1, 2):div(L1 - 1, 2)
+    i2r = -div(L2 - 1, 2):div(L2 - 1, 2)
+    Varr = OffsetArray(zeros(Float64, length(i1r), length(i2r)), i1r, i2r)
+    for Δi in CartesianIndices(Varr)
+        (Δi[1] == 0 && Δi[2] == 0) && continue
+        Varr[Δi] = rkky_int(Tuple(Δi), V, λ)
     end
     return Varr
 end
@@ -161,18 +161,18 @@ end
 """
 Make an array of RKKY rotation angles ϕ_{i1,i2}.
 
-i1 and i2 are integer coordinates from the ranges (1-L1):(L1-1) and (1-L2):(L2-1)
-respectively.
+i1 and i2 are integer coordinates from the ranges -(L1 - 1)/2:(L1 - 1)/2 and
+-(L2 - 1)/2:(L2 - 1)/2 respectively.
 
 `L1` and `L2` - linear sizes of the cluster.
 """
 function make_rkky_angle_array(L1::Int, L2::Int)
-    i1r = (1-L1):(L1-1) # TODO: -div(L1, 2):div(L1, 2)
-    i2r = (1-L2):(L2-1) # TODO: -div(L2, 2):div(L2, 2)
-    ϕ = OffsetArray(Array{Float64, 2}(undef, length(i1r), length(i2r)), i1r, i2r)
-    for i in CartesianIndices(ϕ)
-        (i[1] == 0 && i[2] == 0) && continue
-        ϕ[i] = rkky_angle(Tuple(i))
+    i1r = -div(L1 - 1, 2):div(L1 - 1, 2)
+    i2r = -div(L2 - 1, 2):div(L2 - 1, 2)
+    ϕ = OffsetArray(zeros(Float64, length(i1r), length(i2r)), i1r, i2r)
+    for Δi in CartesianIndices(ϕ)
+        (Δi[1] == 0 && Δi[2] == 0) && continue
+        ϕ[Δi] = rkky_angle(Tuple(Δi))
     end
     return ϕ
 end
@@ -188,16 +188,43 @@ Add it to a given pair interaction array.
 `ϕ` - RKKY rotation angle array.
 """
 @inline function rkky_energy_contrib!(conf::Configuration, i::IntCoords,
-                                      pair_int_energy::AbstractArray{Float64, 2};
+                                      pair_int_energy::AbstractArray{Float64, 2},
+                                      ::Val{0};
                                       V::OffsetArray{Float64, 2},
                                       ϕ::OffsetArray{Float64, 2})
     L1, L2 = size(conf)
     θ_i = conf[i]
-    @batch for j in eachindex(conf)
-        (i == j) && continue # No self-interaction
+    @batch for Δi in CartesianIndices(V)
+        (Δi == CartesianIndex(0, 0)) && continue # No self-interaction
+        j = periodize(i .+ Tuple(Δi), L1, L2)
         θ_j = conf[j]
-        Δi = j .- i
-        pair_int_energy[j...] += V[Δi...] * cos(θ_i - θ_j - ϕ[Δi...])
+        pair_int_energy[j...] += V[Δi] * cos(θ_i - θ_j - ϕ[Δi])
+    end
+end
+
+"""
+Compute energy contribution from the RKKY interaction of a single node with all nodes
+within a given range `R`. Add it to a given pair interaction array.
+
+`conf` - configuration of the interacting spins.
+`i` - integer coordinates of the node.
+`pair_int_energy` - interaction energies of `i` with each node.
+`V` - RKKY interaction array.
+`ϕ` - RKKY rotation angle array.
+"""
+@inline function rkky_energy_contrib!(conf::Configuration, i::IntCoords,
+                                      pair_int_energy::AbstractArray{Float64, 2},
+                                      ::Val{R};
+                                      V::OffsetArray{Float64, 2},
+                                      ϕ::OffsetArray{Float64, 2}) where R
+    L1, L2 = size(conf)
+    θ_i = conf[i]
+    for r in 1:R
+        for Δi in neighbor_shifts(Val(r))
+            j = periodize(i .+ Δi, L1, L2)
+            θ_j = conf[j]
+            pair_int_energy[j...] += V[Δi...] * cos(θ_i - θ_j - ϕ[Δi...])
+        end
     end
 end
 
@@ -273,6 +300,8 @@ mutable struct MCSimulation
     const V::Union{OffsetArray{Float64, 2}, Nothing}
     "RKKY rotation angle array"
     const ϕ::Union{OffsetArray{Float64, 2}, Nothing}
+    "Range cutoff of RKKY interaction (<= 3, 0 = full range)"
+    const rkky_range_cutoff::Int
     "Current spin configuration"
     conf::Configuration
     "Interaction energy (1/2) E[i1,i2,j1,j2] between nodes (i1, i2) and (j1, j2)"
@@ -296,8 +325,9 @@ function MCSimulation(init_conf::Configuration,
                       rng::AbstractRNG;
                       β::Float64,
                       J::Float64,
-                      V::Float64, λ::Float64)
+                      V::Float64, λ::Float64, rkky_range_cutoff::Int = 0)
     L1, L2 = size(init_conf)
+    @assert rkky_range_cutoff <= 3 "rkky_range_cutoff > 3 is not implemented"
 
     enable_rkky = !iszero(V)
     if enable_rkky
@@ -310,7 +340,8 @@ function MCSimulation(init_conf::Configuration,
         pair_int_energy_i = @view pair_int_energy[:, :, i...]
         xy_energy_contrib!(init_conf, i, pair_int_energy_i, J=J)
         if enable_rkky
-            rkky_energy_contrib!(init_conf, i, pair_int_energy_i, V=Varr, ϕ=ϕarr)
+            rkky_energy_contrib!(init_conf, i, pair_int_energy_i, Val(rkky_range_cutoff),
+                                 V=Varr, ϕ=ϕarr)
         end
     end
 
@@ -325,6 +356,7 @@ function MCSimulation(init_conf::Configuration,
     return MCSimulation(β, J,
                         enable_rkky ? Varr : nothing,
                         enable_rkky ? ϕarr : nothing,
+                        rkky_range_cutoff,
                         init_conf,
                         pair_int_energy, energy,
                         rng,
@@ -411,7 +443,8 @@ function propose!(update::UpdateSingleSpin, sim::MCSimulation)::Float64
     xy_energy_contrib!(sim.conf, update.i, update.pair_int_energy_new, J=sim.J,)
     if !isnothing(sim.V)
         rkky_energy_contrib!(
-            sim.conf, update.i, update.pair_int_energy_new, V=sim.V, ϕ=sim.ϕ
+            sim.conf, update.i, update.pair_int_energy_new, Val(sim.rkky_range_cutoff),
+            V=sim.V, ϕ=sim.ϕ
         )
     end
 
