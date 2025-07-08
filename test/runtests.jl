@@ -7,7 +7,6 @@ using MX2RKKY.observables
 using Test
 using LinearAlgebra: dot, norm
 using Random: MersenneTwister
-using OffsetArrays: OffsetArray, Origin
 using Aqua
 
 @testset "MX2RKKY.jl" begin

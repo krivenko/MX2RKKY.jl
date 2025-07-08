@@ -10,6 +10,7 @@ using Polyester: @batch
 
 using MX2RKKY.utility: clamp_angle
 using MX2RKKY.lattice: IntCoords, neighbor_shifts, periodize, neighbors, triangle_nodes, l2c
+using MX2RKKY.lattice: LatticeArray
 
 export Configuration, MCSimulation, run!, acceptance_rates
 
@@ -33,11 +34,8 @@ function Configuration(L1::Int, L2::Int, χ::Int)
     @assert isodd(L1) && (L1 % 3 == 0) "L1 must be odd and a multiple of 3"
     @assert isodd(L2) && (L2 % 3 == 0) "L2 must be odd and a multiple of 3"
     @assert χ ∈ (-1, 1)
-    θ = OffsetArray(zeros(Float64, L1, L2), Origin(0))
     θ_pattern = (χ == -1) ? (π / 2, 7π / 6, 11π / 6) : (π / 2, 11π / 6, 7π / 6)
-    @batch for (i1, i2) in Base.product(0:(L1-1), 0:(L2-1))
-        θ[i1, i2] = θ_pattern[(i1 + i2) % 3 + 1]
-    end
+    θ = LatticeArray(i -> θ_pattern[(i[1] + i[2]) % 3 + 1], Float64, 1, L1, L2)
     return Configuration(θ)
 end
 
@@ -51,7 +49,7 @@ function Configuration(L1::Int, L2::Int, rng::AbstractRNG)
     @assert L2 > 0
     @assert isodd(L1) && (L1 % 3 == 0) "L1 must be odd and a multiple of 3"
     @assert isodd(L2) && (L2 % 3 == 0) "L2 must be odd and a multiple of 3"
-    return Configuration(OffsetArray(2π * rand(rng, L1, L2), Origin(0)))
+    return Configuration(LatticeArray(i -> 2π * rand(rng), Float64, 1, L1, L2))
 end
 
 "Extract linear sizes (L1, L2) of the cluster from a configuration"
@@ -259,13 +257,11 @@ mutable struct Measurements
         L1, _ = size(conf)
         q_min = (2π / L1, 0.0)
         K = (4π / 3, 0)
-        fourier_weights_at_q_min = OffsetArray(
-            [exp(-im * dot(q_min, l2c(i...))) for i in eachindex(conf)],
-            Origin(0)
+        fourier_weights_at_q_min = LatticeArray(
+            i -> exp(-im * dot(q_min, l2c(i...))), ComplexF64, 1, size(conf)...
         )
-        fourier_weights_at_K = OffsetArray(
-            [exp(-im * dot(K, l2c(i...))) for i in eachindex(conf)],
-            Origin(0)
+        fourier_weights_at_K = LatticeArray(
+            i -> exp(-im * dot(K, l2c(i...))), ComplexF64, 1, size(conf)...
         )
         return new(0, [],
                    zeros(2, 0), zeros(ComplexF64, 2, 0), zeros(ComplexF64, 2, 0),
@@ -335,7 +331,7 @@ function MCSimulation(init_conf::Configuration,
         ϕarr = make_rkky_angle_array(L1, L2)
     end
 
-    pair_int_energy = OffsetArray(zeros(Float64, L1, L2, L1, L2), Origin(0))
+    pair_int_energy = LatticeArray(Float64, 2, L1, L2)
     for i in eachindex(init_conf)
         pair_int_energy_i = @view pair_int_energy[:, :, i...]
         xy_energy_contrib!(init_conf, i, pair_int_energy_i, J=J)
@@ -426,7 +422,7 @@ mutable struct UpdateSingleSpin <: AbstractUpdate
     ΔE::Float64
 
     UpdateSingleSpin(L1::Int, L2::Int) = new(
-        (0, 0), .0, OffsetArray(zeros(Float64, L1, L2), Origin(0)), .0
+        (0, 0), .0, LatticeArray(Float64, 1, L1, L2), .0
     )
 end
 

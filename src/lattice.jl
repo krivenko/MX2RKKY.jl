@@ -1,5 +1,6 @@
 module lattice
 
+using OffsetArrays: OffsetArray, Origin
 using StaticArrays: SVector, @SVector
 
 "Integer coordinates of 2D lattice vectors in the basis a1 = (1, 0), a2 = (-1/2, √3/2)"
@@ -63,6 +64,26 @@ boundary conditions and are listed in the clockwise order.
 @inline function triangle_nodes(i::IntCoords, L1::Int, L2::Int)::Vector{IntCoords}
     i1, i2 = i
     return [i, (i1, mod(i2 + 1, L2)), (mod(i1 + 1, L1), mod(i2 + 1, L2))]
+end
+
+"""
+Make a 2D-dimensional zero array with axes 0:(L1-1), 0:(L2-1), 0:(L1-1), ...
+"""
+function LatticeArray(::Type{T}, D::Integer, L1::Integer, L2::Integer) where T
+    @assert D >= 1
+    dims = Iterators.cycle((L1, L2), D)
+    return OffsetArray(zeros(T, dims...), Origin(0))
+end
+
+"""
+Make a 2D-dimensional array with axes 0:(L1-1), 0:(L2-1), 0:(L1-1), ... by calling a
+given function of D IntCoords arguments.
+"""
+function LatticeArray(f::Function, ::Type{T}, D::Integer, L1::Integer, L2::Integer) where T
+    @assert D >= 1
+    range1 = Iterators.product(0:(L1 - 1), 0:(L2 - 1))
+    a = [f(i...) for i in Iterators.product(fill(range1, D)...)]
+    return OffsetArray(a, Origin(0))
 end
 
 end # module lattice
