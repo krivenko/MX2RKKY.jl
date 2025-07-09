@@ -115,10 +115,10 @@ using Aqua
             sim = MCSimulation(conf, rng, β=β, J=J, V=V, λ=λ)
             @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
 
-            run!(sim, n_cycles=500, n_warmup_cycles=100, cycle_length=50)
+            acceptance_rate = run!(sim, n_mcs=200, n_warmup_mcs=40)
             @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
 
-            @show acceptance_rates(sim)
+            @show acceptance_rate
             @show min_energy(sim)
             @show avg_energy(sim)
             @show var_energy(sim)

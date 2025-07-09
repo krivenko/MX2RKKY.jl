@@ -12,7 +12,7 @@ using MX2RKKY.utility: clamp_angle
 using MX2RKKY.lattice: IntCoords, neighbor_shifts, periodize, neighbors, triangle_nodes, l2c
 using MX2RKKY.lattice: LatticeArray
 
-export Configuration, MCSimulation, run!, acceptance_rates
+export Configuration, MCSimulation, run!
 
 #
 # Configuration
@@ -283,9 +283,6 @@ function reset!(m::Measurements, n_samples::Int = 0)
     m.chirality_at_q_min = fill(missing, n_samples)
 end
 
-"Base type of Monte Carlo updates"
-abstract type AbstractUpdate end
-
 "State of a Monte Carlo simulation"
 mutable struct MCSimulation
     "Inverse temperature"
@@ -306,12 +303,6 @@ mutable struct MCSimulation
     energy::Float64
     "Pseudo-random number generator"
     rng::MersenneTwister
-    "Monte Carlo updates"
-    updates::Vector{AbstractUpdate}
-    "Number of proposed updates of each type"
-    n_proposed::Vector{Int}
-    "Number of accepted updates of each type"
-    n_accepted::Vector{Int}
     "Taken measurements"
     const measurements::Measurements
 end
@@ -356,7 +347,6 @@ function MCSimulation(init_conf::Configuration,
                         init_conf,
                         pair_int_energy, energy,
                         rng,
-                        [], zeros(Int, 2), zeros(Int, 2),
                         Measurements(init_conf))
 end
 
@@ -364,54 +354,60 @@ end
 Run Monte Carlo simulation.
 
 `sim` - MC simulation structure.
-`n_cycles` - Number of measurement cycles.
-`n_warmup_cycles` - Number of warm-up cycles.
-`cycle_length` - Number of MC updates per cycle.
+`n_mcs` - Number of MC steps per spin (MCS).
+`n_warmup_mcs` - Number of warm-up MC steps per spin.
+`m_sweeps_per_mcs` - Number of Metropolis lattice sweeps per MCS.
+`maxΔθ` - In the Metropolis sweeps, proposed spin rotations belong to the interval
+          [-maxΔθ, maxΔθ].
+`show_progress` - Show progress meter
 """
 function run!(sim::MCSimulation;
-              n_cycles::Int, n_warmup_cycles::Int, cycle_length::Int = 100)
-    @assert n_cycles >= 0
-    @assert n_warmup_cycles >= 0
-    @assert cycle_length > 0
+              n_mcs::Int, n_warmup_mcs::Int,
+              m_sweeps_per_mcs::Int = 1,
+              maxΔθ::Float64 = Float64(π),
+              show_progress::Bool = true)
+    @assert n_mcs >= 0
+    @assert n_warmup_mcs >= 0
+    @assert m_sweeps_per_mcs > 0
+    @assert 0 < maxΔθ <= π
 
-    # Markov chain updates
     L1, L2 = size(sim.conf)
-    empty!(sim.updates)
-    push!(sim.updates, UpdateSingleSpin(L1, L2))
-    update_weights = [1.0]
+
+    # Metropolis update
+    m_update = MetropolisUpdate(L1, L2, maxΔθ)
 
     # Initialize measurements
-    reset!(sim.measurements, n_cycles)
+    reset!(sim.measurements, n_mcs)
 
-    @showprogress desc="Running MC simulation" for cycle in 1:(n_warmup_cycles + n_cycles)
-        for step in 1:cycle_length
-            # Metropolis-Hastings criterion
-            update_i = sample(sim.rng, Weights(update_weights))
-            update = sim.updates[update_i]
-
-            r = propose!(update, sim)
-            sim.n_proposed[update_i] += 1
-
-            if r > rand(sim.rng, Float64)
-                accept!(update, sim)
-                sim.n_accepted[update_i] += 1
-            else
-                reject!(update, sim)
+    @showprogress(enabled=show_progress, desc="Running MC simulation",
+    for msc in 1:(n_warmup_mcs + n_mcs)
+        # Metropolis sweeps
+        for sweep in 1:m_sweeps_per_mcs
+            for i in eachindex(sim.conf)
+                if propose!(m_update, i, sim) > rand(sim.rng, Float64)
+                    accept!(m_update, sim)
+                else
+                    reject!(m_update, sim)
+                end
             end
         end
 
-        (cycle <= n_warmup_cycles) && continue
-
+        (msc <= n_warmup_mcs) && continue
         measure!(sim)
-    end
+    end)
+
+    # Return Metropolis acceptance rate
+    return m_update.n_accepted / m_update.n_proposed
 end
 
 #
-# UpdateSingleSpin
+# UpdateMetropolis
 #
 
-"Monte Carlo update: Select a random spin and change its components"
-mutable struct UpdateSingleSpin <: AbstractUpdate
+"Metropolis update: rotate a given spin by a random angle"
+mutable struct MetropolisUpdate
+    "Proposed spin rotations belong to the interval [-maxΔθ, maxΔθ]"
+    const maxΔθ::Float64
     "Integer coordinates of the spin to be updated"
     i::IntCoords
     "Angle before update"
@@ -420,44 +416,47 @@ mutable struct UpdateSingleSpin <: AbstractUpdate
     pair_int_energy_new::OffsetArray{Float64, 2}
     "Total energy change caused by the update"
     ΔE::Float64
+    "Number of proposed updates"
+    n_proposed::Int
+    "Number of accepted updates"
+    n_accepted::Int
 
-    UpdateSingleSpin(L1::Int, L2::Int) = new(
-        (0, 0), .0, LatticeArray(Float64, 1, L1, L2), .0
+    MetropolisUpdate(L1::Int, L2::Int, maxΔθ::Float64) = new(
+        maxΔθ, (0, 0), .0, LatticeArray(Float64, 1, L1, L2), .0, 0, 0
     )
 end
 
 "Propose update of a single spin in the cluster"
-function propose!(update::UpdateSingleSpin, sim::MCSimulation)::Float64
-    L1, L2 = size(sim.conf)
-    update.i = (rand(sim.rng, 0:(L1-1)),
-                rand(sim.rng, 0:(L2-1)))
-
-    update.θ_old = sim.conf[update.i]
-    sim.conf[update.i] = 2π * rand(sim.rng, Float64)
+function propose!(update::MetropolisUpdate, i::IntCoords, sim::MCSimulation)::Float64
+    update.n_proposed += 1
+    update.i = i
+    update.θ_old = sim.conf[i]
+    sim.conf[i] = update.maxΔθ * (2.0 * rand(sim.rng, Float64) - 1.0)
 
     update.pair_int_energy_new .= 0
-    xy_energy_contrib!(sim.conf, update.i, update.pair_int_energy_new, J=sim.J,)
+    xy_energy_contrib!(sim.conf, i, update.pair_int_energy_new, J=sim.J)
     if !isnothing(sim.V)
         rkky_energy_contrib!(
-            sim.conf, update.i, update.pair_int_energy_new, Val(sim.rkky_range_cutoff),
+            sim.conf, i, update.pair_int_energy_new, Val(sim.rkky_range_cutoff),
             V=sim.V, ϕ=sim.ϕ
         )
     end
 
-    pair_int_energy_old = @view sim.pair_int_energy[:, :, update.i...]
+    pair_int_energy_old = @view sim.pair_int_energy[:, :, i...]
     update.ΔE = 2 * (sum(update.pair_int_energy_new) - sum(pair_int_energy_old))
     return exp(-sim.β * update.ΔE)
 end
 
 "Accept update of a single spin in the cluster"
-function accept!(update::UpdateSingleSpin, sim::MCSimulation)
+function accept!(update::MetropolisUpdate, sim::MCSimulation)
+    update.n_accepted += 1
     sim.pair_int_energy[:, :, update.i...] .= update.pair_int_energy_new
     sim.pair_int_energy[update.i..., :, :] .= update.pair_int_energy_new
     sim.energy += update.ΔE
 end
 
 "Reject update of a single spin in the cluster"
-function reject!(update::UpdateSingleSpin, sim::MCSimulation)
+function reject!(update::MetropolisUpdate, sim::MCSimulation)
     sim.conf[update.i] = update.θ_old
 end
 
@@ -514,14 +513,6 @@ function measure!(sim::MCSimulation)
     measures.magnetization_at_K[:, measures.count] .= [m_at_K_x, m_at_K_y] / N
     measures.magnetization_at_K_q_min[:, measures.count] .= [m_at_K_q_min_x,
                                                              m_at_K_q_min_y] / N
-end
-
-"""
-Extract acceptance rates of the Monte Carlo updates from a simulation structure.
-"""
-function acceptance_rates(sim::MCSimulation)
-    rates = sim.n_accepted ./ sim.n_proposed
-    return Dict(typeof(u) => r for (u, r) in zip(sim.updates, rates))
 end
 
 end # module montecarlo
