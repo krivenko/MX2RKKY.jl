@@ -6,7 +6,6 @@ using SpecialFunctions: besselj0, besselj1, bessely0, bessely1
 using Random: AbstractRNG, MersenneTwister, rand
 using StatsBase: sample, Weights
 using ProgressMeter: @showprogress
-using Polyester: @batch
 
 using MX2RKKY.utility: clamp_angle
 using MX2RKKY.lattice: IntCoords, neighbor_shifts, periodize, neighbors, triangle_nodes, l2c
@@ -106,7 +105,7 @@ neighbors. Add it to a given pair interaction energy array.
                                     J::Float64)
     L1, L2 = size(conf)
     θ_i = conf[i]
-    @batch for j in neighbors(i, L1, L2)
+    for j in neighbors(i, L1, L2)
         θ_j = conf[j]
         pair_int_energy[j...] += J * cos(θ_i - θ_j) / 2
     end
@@ -192,7 +191,7 @@ Add it to a given pair interaction array.
                                       ϕ::OffsetArray{Float64, 2})
     L1, L2 = size(conf)
     θ_i = conf[i]
-    @batch for Δi in CartesianIndices(V)
+    for Δi in CartesianIndices(V)
         (Δi == CartesianIndex(0, 0)) && continue # No self-interaction
         j = periodize(i .+ Tuple(Δi), L1, L2)
         θ_j = conf[j]
@@ -482,10 +481,7 @@ function measure!(sim::MCSimulation)
     # Magnetization at K + q_min = (4π / 3 + 2π / L_1) e_x
     m_at_K_q_min_x, m_at_K_q_min_y = zeros(ComplexF64, 2)
 
-    @batch reduction=((+, m_x), (+, m_y),
-                      (+, m_at_K_x), (+, m_at_K_y),
-                      (+, m_at_K_q_min_x), (+, m_at_K_q_min_y),
-                      (+, χ), (+, χ_at_q_min)) for i in eachindex(sim.conf)
+    for i in eachindex(sim.conf)
         # Chirality
         χ_i = chirality(sim.conf, i)
         χ += χ_i
