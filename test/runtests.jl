@@ -8,7 +8,11 @@ using Test
 using LinearAlgebra: dot, norm
 using Random: MersenneTwister
 using OffsetArrays: no_offset_view
+
+using MPI
 using Aqua
+
+MPI.Init()
 
 @testset "MX2RKKY.jl" begin
     @testset "Code quality (Aqua.jl)" begin
@@ -120,7 +124,9 @@ using Aqua
         end
 
         @testset "Random init_conf" begin
-            rng = MersenneTwister(123456)
+            rank = MPI.Comm_rank(MPI.COMM_WORLD)
+            rng = MersenneTwister(123456 + rank)
+            conf = Configuration(L1, L2, rng)
 
             for R in [0, 1, 2, 3]
                 conf = Configuration(L1, L2, rng)

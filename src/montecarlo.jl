@@ -7,6 +7,7 @@ using Random: AbstractRNG, MersenneTwister, rand
 using StaticArrays: MVector, @MVector
 using StatsBase: sample, Weights
 using ProgressMeter: @showprogress
+using MPI
 
 using MX2RKKY.utility: clamp_angle
 using MX2RKKY.lattice: LatCoords, neighbor_shifts, periodize, neighbors, triangle_nodes, l2p
@@ -384,6 +385,18 @@ function reset!(m::Measurements)
     m.chirality_at_q_min_2_sum = 0
 end
 
+"MPI-reduction (summation) of measurement results"
+function Allreduce!(m::Measurements, comm::MPI.Comm)
+    m.count = MPI.Allreduce(m.count, +, comm)
+    m.energy_min = MPI.Allreduce(m.energy_min, min, comm)
+    MPI.Allreduce!(m.energy_sums, +, comm)
+    MPI.Allreduce!(m.magnetization_at_K_sum, +, comm)
+    MPI.Allreduce!(m.magnetization_at_K_norm_sums, +, comm)
+    MPI.Allreduce!(m.magnetization_at_K_q_min_norm_sums, +, comm)
+    MPI.Allreduce!(m.chirality_sums, +, comm)
+    m.chirality_at_q_min_2_sum = MPI.Allreduce(m.chirality_at_q_min_2_sum, +, comm)
+end
+
 "State of a Monte Carlo simulation"
 mutable struct MCSimulation
     "Inverse temperature"
@@ -406,6 +419,8 @@ mutable struct MCSimulation
     rng::MersenneTwister
     "Taken measurements"
     const measurements::Measurements
+    "MPI communicator"
+    comm::MPI.Comm
 end
 
 "Construct a simulation structure"
@@ -413,7 +428,8 @@ function MCSimulation(init_conf::Configuration,
                       rng::AbstractRNG;
                       β::Float64,
                       J::Float64,
-                      V::Float64, λ::Float64, rkky_range_cutoff::Int = 0)
+                      V::Float64, λ::Float64, rkky_range_cutoff::Int = 0,
+                      comm::MPI.Comm = MPI.COMM_WORLD)
     L1, L2 = size(init_conf)
     @assert rkky_range_cutoff <= 3 "rkky_range_cutoff > 3 is not implemented"
 
@@ -443,7 +459,8 @@ function MCSimulation(init_conf::Configuration,
                         init_conf,
                         eff_field, energy,
                         rng,
-                        Measurements(init_conf))
+                        Measurements(init_conf),
+                        comm)
 end
 
 """
@@ -469,13 +486,17 @@ function run!(sim::MCSimulation;
     @assert m_sweeps_per_mcs > 0
     @assert 0 < maxΔθ <= π
 
+    mpi_size = MPI.Comm_size(sim.comm)
+    mpi_rank = MPI.Comm_rank(sim.comm)
+
     # Metropolis update
     m_update = MetropolisUpdate(maxΔθ)
 
     # Initialize measurements
     reset!(sim.measurements)
 
-    @showprogress(enabled=show_progress, desc="Running MC simulation",
+    @showprogress(enabled=show_progress,
+                  desc="[Rank $(mpi_rank)/$(mpi_size)] Running MC simulation",
     for msc in 1:(n_warmup_mcs + n_mcs)
         # Metropolis sweeps
         for sweep in 1:m_sweeps_per_mcs
@@ -496,6 +517,8 @@ function run!(sim::MCSimulation;
         (msc <= n_warmup_mcs) && continue
         measure!(sim)
     end)
+
+    Allreduce!(sim.measurements, sim.comm)
 
     # Return Metropolis acceptance rate
     return m_update.n_accepted / m_update.n_proposed
