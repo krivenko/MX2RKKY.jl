@@ -19,7 +19,7 @@ export Configuration, MCSimulation, run!
 
 "Configuration as an array of classical spins on a cluster"
 struct Configuration
-    "Orientations of the spins"
+    "Orientations of the spins θ ∈ [0; 2π)"
     θ::OffsetArray{Float64, 2}
 end
 
@@ -430,7 +430,9 @@ function propose!(update::MetropolisUpdate, i::IntCoords, sim::MCSimulation)::Fl
     update.n_proposed += 1
     update.i = i
     update.θ_old = sim.conf[i]
-    sim.conf[i] = update.maxΔθ * (2.0 * rand(sim.rng, Float64) - 1.0)
+
+    Δθ = update.maxΔθ * (2rand(sim.rng, Float64) - 1)
+    sim.conf[i] = mod2pi(sim.conf[i] + Δθ)
 
     update.pair_int_energy_new .= 0
     xy_energy_contrib!(sim.conf, i, update.pair_int_energy_new, J=sim.J)
