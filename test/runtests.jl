@@ -7,6 +7,7 @@ using MX2RKKY.observables
 using Test
 using LinearAlgebra: dot, norm
 using Random: MersenneTwister
+using OffsetArrays: no_offset_view
 using Aqua
 
 @testset "MX2RKKY.jl" begin
@@ -76,61 +77,70 @@ using Aqua
         shift_p(i, Δi) = periodize(i .+ Tuple(Δi), L1, L2)
 
         @testset "Ordered init_conf" begin
-            conf = Configuration(L1, L2, 1)
-
             rng = MersenneTwister(123456)
-            for R in [0, 1, 2, 3]
-                sim = MCSimulation(conf, rng, β=β, J=J, V=V, λ=λ, rkky_range_cutoff=R)
+            for conf in (Configuration(L1, L2, 1), Configuration(L1, L2, -1))
+                for R in [0, 1, 2, 3]
+                    sim = MCSimulation(conf, rng, β=β, J=J, V=V, λ=λ, rkky_range_cutoff=R)
 
-                # Check that sim.pair_int_energy[i, j] is a function of i - j
-                # in the ordered state
-                en = sim.pair_int_energy
-                for Δi in CartesianIndices(sim.V)
-                    i_ref = ((L1 - 1) ÷ 2, (L2 - 1) ÷ 2)
-                    j_ref = shift_p(i_ref, Δi)
-                    ref = fill(en[i_ref..., j_ref...], axes(sim.conf.θ))
-                    @test [en[i..., shift_p(i, Δi)...] for i in eachindex(sim.conf)] ≈ ref
+                    # Check that all spins coupled to the effective field give equal
+                    # contributions to system's energy in the ordered states
+                    energies = -(cos.(sim.conf.θ) .* sim.eff_field[1, :, :] .+
+                                 sin.(sim.conf.θ) .* sim.eff_field[2, :, :])
+                    @test no_offset_view(energies) ≈ fill(energies[0, 0], L1, L2)
                 end
             end
         end
 
         function energy_ref(θ, sim)
+            # The 0.5 accounts for each link between nodes being visited twice
             E = 0.5 * sum(J * cos(θ[i...] - θ[j...])
                  for i in eachindex(sim.conf), j in eachindex(sim.conf)
-                 if (j ∈ montecarlo.neighbors(i, L1, L2))
+                 if j ∈ montecarlo.neighbors(i, L1, L2)
             )
             if !isnothing(sim.V)
-                E += sum(sim.V[Δi] *
-                         cos(θ[i...] - θ[shift_p(i, Δi)...] - sim.ϕ[Δi])
-                         for i in eachindex(sim.conf), Δi in CartesianIndices(sim.V)
-                         if Δi != CartesianIndex(0, 0))
+                if sim.rkky_range_cutoff == 0
+                    E += sum(sim.V[Δi] *
+                             cos(θ[i...] - θ[shift_p(i, Δi)...] - sim.ϕ[Δi])
+                             for i in eachindex(sim.conf), Δi in CartesianIndices(sim.V)
+                             if Δi != CartesianIndex(0, 0))
+                else
+                    for r in 1:sim.rkky_range_cutoff
+                        R = Val(r)
+                        E += sum(sim.V[Δi...] *
+                                 cos(θ[i...] - θ[shift_p(i, Δi)...] - sim.ϕ[Δi...])
+                                 for i in eachindex(sim.conf), Δi in neighbor_shifts(R))
+                    end
+                end
             end
             return E
         end
 
         @testset "Random init_conf" begin
             rng = MersenneTwister(123456)
-            conf = Configuration(L1, L2, rng)
 
-            sim = MCSimulation(conf, rng, β=β, J=J, V=V, λ=λ)
-            @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
+            for R in [0, 1, 2, 3]
+                conf = Configuration(L1, L2, rng)
 
-            acceptance_rate = run!(sim, n_mcs=200, n_warmup_mcs=40)
-            @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
+                sim = MCSimulation(conf, rng, β=β, J=J, V=V, λ=λ, rkky_range_cutoff=R)
+                @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
 
-            @show acceptance_rate
-            @show min_energy(sim)
-            @show avg_energy(sim)
-            @show var_energy(sim)
-            @show specific_heat(sim)
-            @show avg_chirality(sim)
-            @show var_chirality(sim)
-            @show susc_chirality(sim)
-            @show binder_chirality(sim)
-            @show corr_length_chirality(sim)
-            @show susc_spin_K(sim)
-            @show binder_spin_K(sim)
-            @show corr_length_spin_K(sim)
+                acceptance_rate = run!(sim, n_mcs=10000, n_warmup_mcs=2000)
+                @show acceptance_rate
+                @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
+
+                @show min_energy(sim)
+                @show avg_energy(sim)
+                @show var_energy(sim)
+                @show specific_heat(sim)
+                @show avg_chirality(sim)
+                @show var_chirality(sim)
+                @show susc_chirality(sim)
+                @show binder_chirality(sim)
+                @show corr_length_chirality(sim)
+                @show susc_spin_K(sim)
+                @show binder_spin_K(sim)
+                @show corr_length_spin_K(sim)
+            end
         end
     end
 

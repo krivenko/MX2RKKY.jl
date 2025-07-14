@@ -1,6 +1,6 @@
 module lattice
 
-using OffsetArrays: OffsetArray, Origin
+using OffsetArrays: OffsetArray
 using StaticArrays: SVector, @SVector
 
 "Integer coordinates of 2D lattice vectors in the basis a1 = (1, 0), a2 = (-1/2, √3/2)"
@@ -68,22 +68,32 @@ end
 
 """
 Make a 2D-dimensional zero array with axes 0:(L1-1), 0:(L2-1), 0:(L1-1), ...
+The optional argument `extra_leading_dims` can be used to prepend more axes.
 """
-function LatticeArray(::Type{T}, D::Integer, L1::Integer, L2::Integer) where T
+function LatticeArray(::Type{T}, D::Integer, L1::Integer, L2::Integer;
+                      extra_leading_dims::NTuple{D0, Int} = ()) where {T, D0}
     @assert D >= 1
     dims = Iterators.cycle((L1, L2), D)
-    return OffsetArray(zeros(T, dims...), Origin(0))
+    leading_offsets = fill(0, length(extra_leading_dims))
+    offsets = fill(-1, 2D)
+    return OffsetArray(zeros(T, extra_leading_dims..., dims...),
+                       leading_offsets..., offsets...)
 end
 
 """
 Make a 2D-dimensional array with axes 0:(L1-1), 0:(L2-1), 0:(L1-1), ... by calling a
 given function of D IntCoords arguments.
+The optional argument `extra_leading_dims` can be used to prepend more axes.
 """
-function LatticeArray(f::Function, ::Type{T}, D::Integer, L1::Integer, L2::Integer) where T
+function LatticeArray(f::Function, ::Type{T}, D::Integer, L1::Integer, L2::Integer;
+                      extra_leading_dims::NTuple{D0, Int} = ()) where {T, D0}
     @assert D >= 1
+    leading_ranges = (1:d for d in extra_leading_dims)
     range1 = Iterators.product(0:(L1 - 1), 0:(L2 - 1))
-    a = [f(i...) for i in Iterators.product(fill(range1, D)...)]
-    return OffsetArray(a, Origin(0))
+    a = [f(i...) for i in Iterators.product(leading_ranges..., fill(range1, D)...)]
+    leading_offsets = fill(0, length(extra_leading_dims))
+    offsets = fill(-1, 2D)
+    return OffsetArray(a, leading_offsets..., offsets...)
 end
 
 end # module lattice

@@ -4,6 +4,7 @@ using OffsetArrays: OffsetArray, Origin
 using LinearAlgebra: dot, issymmetric, diag
 using SpecialFunctions: besselj0, besselj1, bessely0, bessely1
 using Random: AbstractRNG, MersenneTwister, rand
+using StaticArrays: MVector, @MVector
 using StatsBase: sample, Weights
 using ProgressMeter: @showprogress
 
@@ -92,22 +93,48 @@ end
 #
 
 """
-Compute energy contributions from the Heisenberg XY interaction of a single node with its
-neighbors. Add it to a given pair interaction energy array.
+Compute effective field felt by a single node from the Heisenberg XY interaction with its
+neighbors.
 
 `conf` - configuration of the interacting spins.
 `i` - integer coordinates of the node.
-`pair_int_energy` - interaction energies of `i` with each node.
 `J` - Heisenberg interaction constant J.
 """
-@inline function xy_energy_contrib!(conf::Configuration, i::IntCoords,
-                                    pair_int_energy::AbstractArray{Float64, 2};
-                                    J::Float64)
+@inline function xy_eff_field_contrib(conf::Configuration,
+                                      i::IntCoords;
+                                      J::Float64)::MVector{2, Float64}
     L1, L2 = size(conf)
-    θ_i = conf[i]
+    res = @MVector zeros(Float64, 2)
     for j in neighbors(i, L1, L2)
-        θ_j = conf[j]
-        pair_int_energy[j...] += J * cos(θ_i - θ_j) / 2
+        s, c = sincos(conf[j])
+        res[1] += -J * c / 2
+        res[2] += -J * s / 2
+    end
+    return res
+end
+
+"""
+Recompute contribution of the Heisenberg XY interaction to the effective field after a
+change of a single spin in the cluster.
+
+`eff_field` - effective field.
+`conf` - configuration of the interacting spins.
+`i` - integer coordinates of the updated spin.
+`Δθ` - angle change of the spin.
+`J` - Heisenberg interaction constant J.
+"""
+@inline function xy_update_eff_field!(eff_field::OffsetArray{Float64, 3},
+                                      conf::Configuration,
+                                      i::IntCoords,
+                                      Δθ::Float64;
+                                      J::Float64)
+    L1, L2 = size(conf)
+    a = J * sin(Δθ / 2)
+    s, c = sincos(conf[i] + Δθ / 2)
+    ΔHx, ΔHy = a * s, -a * c
+    for j in neighbors(i, L1, L2)
+        eff_field[1, j...] += ΔHx
+        eff_field[2, j...] += ΔHy
     end
 end
 
@@ -175,52 +202,118 @@ function make_rkky_angle_array(L1::Int, L2::Int)
 end
 
 """
-Compute energy contribution from the RKKY interaction of a single node with all other nodes.
-Add it to a given pair interaction array.
+Compute effective field felt by a single node from the RKKY interaction with all other
+nodes.
 
 `conf` - configuration of the interacting spins.
 `i` - integer coordinates of the node.
-`pair_int_energy` - interaction energies of `i` with each node.
 `V` - RKKY interaction array.
 `ϕ` - RKKY rotation angle array.
 """
-@inline function rkky_energy_contrib!(conf::Configuration, i::IntCoords,
-                                      pair_int_energy::AbstractArray{Float64, 2},
-                                      ::Val{0};
-                                      V::OffsetArray{Float64, 2},
-                                      ϕ::OffsetArray{Float64, 2})
+@inline function rkky_eff_field_contrib(conf::Configuration, i::IntCoords,
+                                        ::Val{0};
+                                        V::OffsetArray{Float64, 2},
+                                        ϕ::OffsetArray{Float64, 2})::MVector{2, Float64}
     L1, L2 = size(conf)
-    θ_i = conf[i]
+    res = @MVector zeros(Float64, 2)
     for Δi in CartesianIndices(V)
         (Δi == CartesianIndex(0, 0)) && continue # No self-interaction
         j = periodize(i .+ Tuple(Δi), L1, L2)
-        θ_j = conf[j]
-        pair_int_energy[j...] += V[Δi] * cos(θ_i - θ_j - ϕ[Δi])
+        s, c = sincos(conf[j] + ϕ[Δi])
+        v = V[Δi]
+        res[1] += -v * c
+        res[2] += -v * s
+    end
+    return res
+end
+
+"""
+Compute effective field felt by a single node from the RKKY interaction with all other
+nodes within a given range `R`.
+
+`conf` - configuration of the interacting spins.
+`i` - integer coordinates of the node.
+`V` - RKKY interaction array.
+`ϕ` - RKKY rotation angle array.
+"""
+@inline function rkky_eff_field_contrib(
+    conf::Configuration, i::IntCoords,
+    ::Val{R};
+    V::OffsetArray{Float64, 2},
+    ϕ::OffsetArray{Float64, 2})::MVector{2, Float64} where R
+    L1, L2 = size(conf)
+    res = @MVector zeros(Float64, 2)
+    for r in 1:R
+        for Δi in neighbor_shifts(Val(r))
+            j = periodize(i .+ Δi, L1, L2)
+            s, c = sincos(conf[j] + ϕ[Δi...])
+            v = V[Δi...]
+            res[1] += -v * c
+            res[2] += -v * s
+        end
+    end
+    return res
+end
+
+"""
+Recompute contribution of the RKKY interaction with all other nodes to the effective field
+after a change of a single spin in the cluster.
+
+`eff_field` - effective field.
+`conf` - configuration of the interacting spins.
+`i` - integer coordinates of the updated spin.
+`Δθ` - angle change of the spin.
+`V` - RKKY interaction array.
+`ϕ` - RKKY rotation angle array.
+"""
+@inline function rkky_update_eff_field!(eff_field::OffsetArray{Float64, 3},
+                                        conf::Configuration,
+                                        i::IntCoords,
+                                        ::Val{0},
+                                        Δθ::Float64;
+                                        V::OffsetArray{Float64, 2},
+                                        ϕ::OffsetArray{Float64, 2})
+    L1, L2 = size(conf)
+    a = 2 * sin(Δθ / 2)
+    ψ = conf[i] + Δθ / 2
+    for Δi in CartesianIndices(V)
+        (Δi == CartesianIndex(0, 0)) && continue # No self-interaction
+        j = periodize(i .+ Tuple(Δi), L1, L2)
+        s, c = sincos(ψ + ϕ[-Δi])
+        v = V[-Δi]
+        eff_field[1, j...] += a * v * s
+        eff_field[2, j...] += -a * v * c
     end
 end
 
 """
-Compute energy contribution from the RKKY interaction of a single node with all nodes
-within a given range `R`. Add it to a given pair interaction array.
+Recompute contribution of the RKKY interaction with all other nodes within a given range `R`
+to the effective field after a change of a single spin in the cluster.
 
+`eff_field` - effective field.
 `conf` - configuration of the interacting spins.
-`i` - integer coordinates of the node.
-`pair_int_energy` - interaction energies of `i` with each node.
+`i` - integer coordinates of the updated spin.
+`Δθ` - angle change of the spin.
 `V` - RKKY interaction array.
 `ϕ` - RKKY rotation angle array.
 """
-@inline function rkky_energy_contrib!(conf::Configuration, i::IntCoords,
-                                      pair_int_energy::AbstractArray{Float64, 2},
-                                      ::Val{R};
-                                      V::OffsetArray{Float64, 2},
-                                      ϕ::OffsetArray{Float64, 2}) where R
+@inline function rkky_update_eff_field!(eff_field::OffsetArray{Float64, 3},
+                                        conf::Configuration,
+                                        i::IntCoords,
+                                        ::Val{R},
+                                        Δθ::Float64;
+                                        V::OffsetArray{Float64, 2},
+                                        ϕ::OffsetArray{Float64, 2}) where R
     L1, L2 = size(conf)
-    θ_i = conf[i]
+    a = 2 * sin(Δθ / 2)
+    ψ = conf[i] + Δθ / 2
     for r in 1:R
         for Δi in neighbor_shifts(Val(r))
             j = periodize(i .+ Δi, L1, L2)
-            θ_j = conf[j]
-            pair_int_energy[j...] += V[Δi...] * cos(θ_i - θ_j - ϕ[Δi...])
+            s, c = sincos(ψ - ϕ[Δi...])
+            v = V[Δi...]
+            eff_field[1, j...] += a * v * s
+            eff_field[2, j...] += -a * v * c
         end
     end
 end
@@ -296,8 +389,8 @@ mutable struct MCSimulation
     const rkky_range_cutoff::Int
     "Current spin configuration"
     conf::Configuration
-    "Interaction energy (1/2) E[i1,i2,j1,j2] between nodes (i1, i2) and (j1, j2)"
-    pair_int_energy::OffsetArray{Float64, 4}
+    "Components of the effective field H[α, i, j] felt by a spin at (i, j), α = x, y"
+    eff_field::OffsetArray{Float64, 3}
     "Total energy of the system"
     energy::Float64
     "Pseudo-random number generator"
@@ -321,30 +414,25 @@ function MCSimulation(init_conf::Configuration,
         ϕarr = make_rkky_angle_array(L1, L2)
     end
 
-    pair_int_energy = LatticeArray(Float64, 2, L1, L2)
+    eff_field = LatticeArray(Float64, 1, L1, L2, extra_leading_dims=(2,))
     for i in eachindex(init_conf)
-        pair_int_energy_i = @view pair_int_energy[:, :, i...]
-        xy_energy_contrib!(init_conf, i, pair_int_energy_i, J=J)
+        eff_field[:, i...] += xy_eff_field_contrib(init_conf, i, J=J)
         if enable_rkky
-            rkky_energy_contrib!(init_conf, i, pair_int_energy_i, Val(rkky_range_cutoff),
-                                 V=Varr, ϕ=ϕarr)
+            eff_field[:, i...] += rkky_eff_field_contrib(init_conf, i,
+                                                         Val(rkky_range_cutoff),
+                                                         V=Varr, ϕ=ϕarr)
         end
     end
 
-    # Check that pair_int_energy is symmetric and does not contain self-interaction terms
-    N = L1 * L2
-    pair_int_energy_mat = reshape(pair_int_energy, N, N)
-    @assert isapprox(pair_int_energy_mat, pair_int_energy_mat', atol=1e-10)
-    @assert iszero(diag(pair_int_energy_mat))
-
-    energy = sum(pair_int_energy)
+    energy = -sum(cos.(init_conf.θ) .* eff_field[1, :, :] .+
+                  sin.(init_conf.θ) .* eff_field[2, :, :])
 
     return MCSimulation(β, J,
                         enable_rkky ? Varr : nothing,
                         enable_rkky ? ϕarr : nothing,
                         rkky_range_cutoff,
                         init_conf,
-                        pair_int_energy, energy,
+                        eff_field, energy,
                         rng,
                         Measurements(init_conf))
 end
@@ -385,8 +473,6 @@ function run!(sim::MCSimulation;
             for i in eachindex(sim.conf)
                 if propose!(m_update, i, sim) > rand(sim.rng, Float64)
                     accept!(m_update, sim)
-                else
-                    reject!(m_update, sim)
                 end
             end
         end
@@ -409,10 +495,8 @@ mutable struct MetropolisUpdate
     const maxΔθ::Float64
     "Integer coordinates of the spin to be updated"
     i::IntCoords
-    "Angle before update"
-    θ_old::Float64
-    "Contributions of the selected spin to system's energy after update"
-    pair_int_energy_new::OffsetArray{Float64, 2}
+    "Proposed angle change"
+    Δθ::Float64
     "Total energy change caused by the update"
     ΔE::Float64
     "Number of proposed updates"
@@ -420,45 +504,32 @@ mutable struct MetropolisUpdate
     "Number of accepted updates"
     n_accepted::Int
 
-    MetropolisUpdate(L1::Int, L2::Int, maxΔθ::Float64) = new(
-        maxΔθ, (0, 0), .0, LatticeArray(Float64, 1, L1, L2), .0, 0, 0
-    )
+    MetropolisUpdate(L1::Int, L2::Int, maxΔθ::Float64) = new(maxΔθ, (0, 0), .0, .0, 0, 0)
 end
 
 "Propose update of a single spin in the cluster"
 function propose!(update::MetropolisUpdate, i::IntCoords, sim::MCSimulation)::Float64
     update.n_proposed += 1
+
     update.i = i
-    update.θ_old = sim.conf[i]
+    update.Δθ = update.maxΔθ * (2rand(sim.rng, Float64) - 1)
 
-    Δθ = update.maxΔθ * (2rand(sim.rng, Float64) - 1)
-    sim.conf[i] = mod2pi(sim.conf[i] + Δθ)
-
-    update.pair_int_energy_new .= 0
-    xy_energy_contrib!(sim.conf, i, update.pair_int_energy_new, J=sim.J)
-    if !isnothing(sim.V)
-        rkky_energy_contrib!(
-            sim.conf, i, update.pair_int_energy_new, Val(sim.rkky_range_cutoff),
-            V=sim.V, ϕ=sim.ϕ
-        )
-    end
-
-    pair_int_energy_old = @view sim.pair_int_energy[:, :, i...]
-    update.ΔE = 2 * (sum(update.pair_int_energy_new) - sum(pair_int_energy_old))
+    s, c = sincos(sim.conf[i] + update.Δθ / 2)
+    H = @view sim.eff_field[:, i...]
+    update.ΔE = 4 * sin(update.Δθ / 2) * (s * H[1] - c * H[2])
     return exp(-sim.β * update.ΔE)
 end
 
 "Accept update of a single spin in the cluster"
 function accept!(update::MetropolisUpdate, sim::MCSimulation)
     update.n_accepted += 1
-    sim.pair_int_energy[:, :, update.i...] .= update.pair_int_energy_new
-    sim.pair_int_energy[update.i..., :, :] .= update.pair_int_energy_new
+    xy_update_eff_field!(sim.eff_field, sim.conf, update.i, update.Δθ, J=sim.J)
+    if !isnothing(sim.V)
+        rkky_update_eff_field!(sim.eff_field, sim.conf, update.i,
+                               Val(sim.rkky_range_cutoff), update.Δθ, V=sim.V, ϕ=sim.ϕ)
+    end
+    sim.conf[update.i] = mod2pi(sim.conf[update.i] + update.Δθ)
     sim.energy += update.ΔE
-end
-
-"Reject update of a single spin in the cluster"
-function reject!(update::MetropolisUpdate, sim::MCSimulation)
-    sim.conf[update.i] = update.θ_old
 end
 
 #
