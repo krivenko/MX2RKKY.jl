@@ -1,7 +1,7 @@
 module montecarlo
 
 using OffsetArrays: OffsetArray, Origin
-using LinearAlgebra: dot, issymmetric, diag
+using LinearAlgebra: dot, issymmetric, diag, norm
 using SpecialFunctions: besselj0, besselj1, bessely0, bessely1
 using Random: AbstractRNG, MersenneTwister, rand
 using StaticArrays: MVector, @MVector
@@ -326,18 +326,26 @@ end
 mutable struct Measurements
     "Number of measurements taken"
     count::Int
-    "Samples: Energy of the system"
-    energy::Vector{Union{Float64, Missing}}
-    "Samples: Magnetization"
-    magnetization::Array{Union{Float64, Missing}, 2}
-    "Samples: Magnetization at K = (4π / 3) e_x"
-    magnetization_at_K::Array{Union{ComplexF64, Missing}, 2}
-    "Samples: Magnetization at K + q_min = (4π / 3 + 2π / L_1) e_x"
-    magnetization_at_K_q_min::Array{Union{ComplexF64, Missing}, 2}
-    "Samples: Chirality at q=0"
-    chirality::Vector{Union{Float64, Missing}}
-    "Samples: Chirality at q=q_min=(2π / L_1) e_x"
-    chirality_at_q_min::Vector{Union{ComplexF64, Missing}}
+    "Encountered minimum of energy"
+    energy_min::Float64
+    "Powers of energy E, E^2, E^3, E^4 summed over MC samples"
+    energy_sums::Vector{Float64}
+    "Magnetization m(K) at K = (4π / 3) e_x summed over MC samples"
+    magnetization_at_K_sum::Vector{ComplexF64}
+    """
+    Powers of norm of magnetization |m(K)|^p at K = (4π / 3) e_x for p=1:4
+    summed over MC samples
+    """
+    magnetization_at_K_norm_sums::Vector{Float64}
+    """
+    Powers of norm of magnetization |m(K + q_min)|^p at K + q_min = (4π / 3 + 2π / L_1) e_x
+    for p=1:4 summed over MC samples
+    """
+    magnetization_at_K_q_min_norm_sums::Vector{Float64}
+    "Powers of chirality χ, χ^2, χ^3, χ^4 summed over MC samples"
+    chirality_sums::Vector{Float64}
+    "Squared chirality |χ(q)|^2 at q=q_min=(2π / L_1) e_x summed over MC samples"
+    chirality_at_q_min_2_sum::ComplexF64
     "Fourier weights exp(-i q_min r_i)"
     fourier_weights_at_q_min::OffsetArray{ComplexF64, 2}
     "Fourier weights exp(-i K r_i)"
@@ -355,9 +363,9 @@ mutable struct Measurements
         fourier_weights_at_K = LatticeArray(
             i -> exp(-im * dot(K, l2p(i[1], i[2]))), ComplexF64, 1, size(conf)...
         )
-        return new(0, [],
-                   zeros(2, 0), zeros(ComplexF64, 2, 0), zeros(ComplexF64, 2, 0),
-                   [], [],
+        return new(0, Inf64, zeros(Float64, 4),
+                   zeros(ComplexF64, 2), zeros(Float64, 4), zeros(Float64, 4),
+                   zeros(Float64, 4), .0,
                    fourier_weights_at_q_min,
                    fourier_weights_at_K,
                    fourier_weights_at_K .* fourier_weights_at_q_min)
@@ -365,14 +373,15 @@ mutable struct Measurements
 end
 
 "Clear measurement results and pre-allocate sample arrays"
-function reset!(m::Measurements, n_samples::Int = 0)
+function reset!(m::Measurements)
     m.count = 0
-    m.energy = fill(missing, n_samples)
-    m.magnetization = fill(missing, 2, n_samples)
-    m.magnetization_at_K = fill(missing, 2, n_samples)
-    m.magnetization_at_K_q_min = fill(missing, 2, n_samples)
-    m.chirality = fill(missing, n_samples)
-    m.chirality_at_q_min = fill(missing, n_samples)
+    m.energy_min = Inf64
+    fill!(m.energy_sums, .0)
+    fill!(m.magnetization_at_K_sum, 0.)
+    fill!(m.magnetization_at_K_norm_sums, 0.)
+    fill!(m.magnetization_at_K_q_min_norm_sums, 0.)
+    fill!(m.chirality_sums, .0)
+    m.chirality_at_q_min_2_sum = 0
 end
 
 "State of a Monte Carlo simulation"
@@ -464,7 +473,7 @@ function run!(sim::MCSimulation;
     m_update = MetropolisUpdate(maxΔθ)
 
     # Initialize measurements
-    reset!(sim.measurements, n_mcs)
+    reset!(sim.measurements)
 
     @showprogress(enabled=show_progress, desc="Running MC simulation",
     for msc in 1:(n_warmup_mcs + n_mcs)
@@ -567,50 +576,46 @@ end
 
 "Update measurement data"
 function measure!(sim::MCSimulation)
-    measures = sim.measurements
-    measures.count += 1
-    measures.energy[measures.count] = sim.energy
-
     L1, L2 = size(sim.conf)
     N = L1 * L2
 
-    χ::Float64 = 0                   # Chirality at q = 0
-    χ_at_q_min::ComplexF64 = 0       # Chirality at q = q_min = (2π / L_1) e_x
-    # Magnetization at q = 0
-    m_x, m_y = zeros(Float64, 2)
-    # Magnetization at K = (4π / 3) e_x
-    m_at_K_x, m_at_K_y = zeros(ComplexF64, 2)
-    # Magnetization at K + q_min = (4π / 3 + 2π / L_1) e_x
-    m_at_K_q_min_x, m_at_K_q_min_y = zeros(ComplexF64, 2)
+    m = sim.measurements
+    m.count += 1
+
+    # Energy
+    m.energy_min = min(m.energy_min, sim.energy)
+    m.energy_sums .+= sim.energy .^ (1:4)
+
+    χ::Float64 = 0                         # Chirality at q = 0
+    χ_at_q_min::ComplexF64 = 0             # Chirality at q = q_min = (2π / L_1) e_x
+    magn = zeros(Float64, 2)               # Magnetization at q = 0
+    magn_at_K = zeros(ComplexF64, 2)       # Magnetization at K = (4π / 3) e_x
+    magn_at_K_q_min = zeros(ComplexF64, 2) # Magnetization at K + q_min
 
     for i in CartesianIndices(sim.conf)
         # Chirality
         χ_i = chirality(sim.conf, i)
         χ += χ_i
-        χ_at_q_min += measures.fourier_weights_at_q_min[i] * χ_i
+        χ_at_q_min += m.fourier_weights_at_q_min[i] * χ_i
 
         # Magnetization
-        m_x_i = cos(sim.conf[i])
-        m_y_i = sin(sim.conf[i])
+        magn_y_i, magn_x_i = sincos(sim.conf[i])
 
-        m_x += m_x_i
-        m_y += m_y_i
+        magn .+= (magn_x_i, magn_y_i)
 
-        w_at_K = measures.fourier_weights_at_K[i]
-        m_at_K_x += w_at_K * m_x_i
-        m_at_K_y += w_at_K * m_y_i
+        w_at_K = m.fourier_weights_at_K[i]
+        magn_at_K .+= w_at_K .* (magn_x_i, magn_y_i)
 
-        w_at_K_q_min = measures.fourier_weights_at_K_q_min[i]
-        m_at_K_q_min_x += w_at_K_q_min * m_x_i
-        m_at_K_q_min_y += w_at_K_q_min * m_y_i
+        w_at_K_q_min = m.fourier_weights_at_K_q_min[i]
+        magn_at_K_q_min .+= w_at_K_q_min .* (magn_x_i, magn_y_i)
     end
 
-    measures.chirality[measures.count] = χ / N
-    measures.chirality_at_q_min[measures.count] = χ_at_q_min / N
-    measures.magnetization[:, measures.count] .= [m_x, m_y] / N
-    measures.magnetization_at_K[:, measures.count] .= [m_at_K_x, m_at_K_y] / N
-    measures.magnetization_at_K_q_min[:, measures.count] .= [m_at_K_q_min_x,
-                                                             m_at_K_q_min_y] / N
+    m.chirality_sums .+= (χ / N) .^ (1:4)
+    m.chirality_at_q_min_2_sum += abs(χ_at_q_min / N) ^ 2
+
+    m.magnetization_at_K_sum .+= magn_at_K ./ N
+    m.magnetization_at_K_norm_sums .+= norm(magn_at_K ./ N) .^ (1:4)
+    m.magnetization_at_K_q_min_norm_sums .+= norm(magn_at_K_q_min ./ N) .^ (1:4)
 end
 
 end # module montecarlo
