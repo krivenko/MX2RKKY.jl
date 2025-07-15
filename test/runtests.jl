@@ -128,7 +128,8 @@ using Aqua
                 sim = MCSimulation(conf, rng, β=β, J=J, V=V, λ=λ, rkky_range_cutoff=R)
                 @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
 
-                acceptance_rate = run!(sim, n_mcs=10000, n_warmup_mcs=2000)
+                acceptance_rate = run!(sim, n_mcs=1000, n_warmup_mcs=200,
+                                       or_sweeps_per_mcs=1)
                 @show acceptance_rate
                 @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
 

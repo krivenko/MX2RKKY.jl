@@ -55,7 +55,7 @@ end
 "Extract linear sizes (L1, L2) of the cluster from a configuration"
 Base.size(conf::Configuration) = size(conf.θ)
 
-"Iterate over all integer coordinates of nodes in the cluster from a configuration"
+"Iterate over all lattice coordinates of nodes in the cluster from a configuration"
 Base.CartesianIndices(conf::Configuration) = CartesianIndices(conf.θ)
 
 "Read orientation of a single spin in a configuration"
@@ -69,11 +69,11 @@ end
 """
 Compute chirality of a single triangle in a given configuration.
 
-The triangle is specified by the integer coordinates of its lowest (having the smallest `y`
+The triangle is specified by the lattice coordinates of its lowest (having the smallest `y`
 coordinate) node.
 
 `conf` - spin configuration.
-`i` - integer coordinates of the node.
+`i` - lattice coordinates of the node.
 """
 @inline function chirality(conf::Configuration, i::LatCoords)
     L1, L2 = size(conf)
@@ -97,7 +97,7 @@ Compute effective field felt by a single node from the Heisenberg XY interaction
 neighbors.
 
 `conf` - configuration of the interacting spins.
-`i` - integer coordinates of the node.
+`i` - lattice coordinates of the node.
 `J` - Heisenberg interaction constant J.
 """
 @inline function xy_eff_field_contrib(conf::Configuration,
@@ -119,7 +119,7 @@ change of a single spin in the cluster.
 
 `eff_field` - effective field.
 `conf` - configuration of the interacting spins.
-`i` - integer coordinates of the updated spin.
+`i` - lattice coordinates of the updated spin.
 `Δθ` - angle change of the spin.
 `J` - Heisenberg interaction constant J.
 """
@@ -206,7 +206,7 @@ Compute effective field felt by a single node from the RKKY interaction with all
 nodes.
 
 `conf` - configuration of the interacting spins.
-`i` - integer coordinates of the node.
+`i` - Lattice coordinates of the node.
 `V` - RKKY interaction array.
 `ϕ` - RKKY rotation angle array.
 """
@@ -232,7 +232,7 @@ Compute effective field felt by a single node from the RKKY interaction with all
 nodes within a given range `R`.
 
 `conf` - configuration of the interacting spins.
-`i` - integer coordinates of the node.
+`i` - Lattice coordinates of the node.
 `V` - RKKY interaction array.
 `ϕ` - RKKY rotation angle array.
 """
@@ -261,7 +261,7 @@ after a change of a single spin in the cluster.
 
 `eff_field` - effective field.
 `conf` - configuration of the interacting spins.
-`i` - integer coordinates of the updated spin.
+`i` - Lattice coordinates of the updated spin.
 `Δθ` - angle change of the spin.
 `V` - RKKY interaction array.
 `ϕ` - RKKY rotation angle array.
@@ -292,7 +292,7 @@ to the effective field after a change of a single spin in the cluster.
 
 `eff_field` - effective field.
 `conf` - configuration of the interacting spins.
-`i` - integer coordinates of the updated spin.
+`i` - Lattice coordinates of the updated spin.
 `Δθ` - angle change of the spin.
 `V` - RKKY interaction array.
 `ϕ` - RKKY rotation angle array.
@@ -444,6 +444,7 @@ Run Monte Carlo simulation.
 `n_mcs` - Number of MC steps per spin (MCS).
 `n_warmup_mcs` - Number of warm-up MC steps per spin.
 `m_sweeps_per_mcs` - Number of Metropolis lattice sweeps per MCS.
+`or_sweeps_per_mcs` - Number of overrelaxation lattice sweeps per MCS.
 `maxΔθ` - In the Metropolis sweeps, proposed spin rotations belong to the interval
           [-maxΔθ, maxΔθ].
 `show_progress` - Show progress meter
@@ -451,6 +452,7 @@ Run Monte Carlo simulation.
 function run!(sim::MCSimulation;
               n_mcs::Int, n_warmup_mcs::Int,
               m_sweeps_per_mcs::Int = 1,
+              or_sweeps_per_mcs::Int = 0,
               maxΔθ::Float64 = Float64(π),
               show_progress::Bool = true)
     @assert n_mcs >= 0
@@ -458,10 +460,8 @@ function run!(sim::MCSimulation;
     @assert m_sweeps_per_mcs > 0
     @assert 0 < maxΔθ <= π
 
-    L1, L2 = size(sim.conf)
-
     # Metropolis update
-    m_update = MetropolisUpdate(L1, L2, maxΔθ)
+    m_update = MetropolisUpdate(maxΔθ)
 
     # Initialize measurements
     reset!(sim.measurements, n_mcs)
@@ -474,6 +474,13 @@ function run!(sim::MCSimulation;
                 if propose!(m_update, i, sim) > rand(sim.rng, Float64)
                     accept!(m_update, sim)
                 end
+            end
+        end
+
+        # Overrelaxation sweeps
+        for sweep in 1:or_sweeps_per_mcs
+            for i in CartesianIndices(sim.conf)
+                overrelaxation!(i, sim)
             end
         end
 
@@ -493,7 +500,7 @@ end
 mutable struct MetropolisUpdate
     "Proposed spin rotations belong to the interval [-maxΔθ, maxΔθ]"
     const maxΔθ::Float64
-    "Integer coordinates of the spin to be updated"
+    "Lattice coordinates of the spin to be updated"
     i::LatCoords
     "Proposed angle change"
     Δθ::Float64
@@ -504,9 +511,7 @@ mutable struct MetropolisUpdate
     "Number of accepted updates"
     n_accepted::Int
 
-    MetropolisUpdate(L1::Int, L2::Int, maxΔθ::Float64) = new(
-        maxΔθ, LatCoords(0, 0), .0, .0, 0, 0
-    )
+    MetropolisUpdate(maxΔθ::Float64) = new(maxΔθ, LatCoords(0, 0), .0, .0, 0, 0)
 end
 
 "Propose update of a single spin in the cluster"
@@ -532,6 +537,28 @@ function accept!(update::MetropolisUpdate, sim::MCSimulation)
     end
     sim.conf[update.i] = mod2pi(sim.conf[update.i] + update.Δθ)
     sim.energy += update.ΔE
+end
+
+#
+# Overrelaxation
+#
+
+"""
+Apply the overrelaxation update to a single spin.
+
+`i` - Lattice coordinates of the updated spin.
+`sim` - `sim` - MC simulation structure.
+"""
+function overrelaxation!(i::LatCoords, sim::MCSimulation)
+    η = atan(sim.eff_field[2, i], sim.eff_field[1, i])
+    θ = mod2pi(2η - sim.conf[i])
+    Δθ = θ - sim.conf[i]
+    xy_update_eff_field!(sim.eff_field, sim.conf, i, Δθ, J=sim.J)
+    if !isnothing(sim.V)
+        rkky_update_eff_field!(sim.eff_field, sim.conf, i,
+                               Val(sim.rkky_range_cutoff), Δθ, V=sim.V, ϕ=sim.ϕ)
+    end
+    sim.conf[i] = θ
 end
 
 #
