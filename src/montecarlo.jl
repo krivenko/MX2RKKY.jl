@@ -9,7 +9,7 @@ using StatsBase: sample, Weights
 using ProgressMeter: @showprogress
 
 using MX2RKKY.utility: clamp_angle
-using MX2RKKY.lattice: IntCoords, neighbor_shifts, periodize, neighbors, triangle_nodes, l2c
+using MX2RKKY.lattice: LatCoords, neighbor_shifts, periodize, neighbors, triangle_nodes, l2p
 using MX2RKKY.lattice: LatticeArray
 
 export Configuration, MCSimulation, run!
@@ -56,14 +56,14 @@ end
 Base.size(conf::Configuration) = size(conf.θ)
 
 "Iterate over all integer coordinates of nodes in the cluster from a configuration"
-Base.eachindex(conf::Configuration) = Base.product(axes(conf.θ, 1), axes(conf.θ, 2))
+Base.CartesianIndices(conf::Configuration) = CartesianIndices(conf.θ)
 
 "Read orientation of a single spin in a configuration"
-Base.getindex(conf::Configuration, i::IntCoords) = conf.θ[i...]
+Base.getindex(conf::Configuration, i::LatCoords) = conf.θ[i]
 
 "Set orientation of a single spin in a configuration"
-function Base.setindex!(conf::Configuration, θ::Float64, i::IntCoords)
-    conf.θ[i...] = θ
+function Base.setindex!(conf::Configuration, θ::Float64, i::LatCoords)
+    conf.θ[i] = θ
 end
 
 """
@@ -75,7 +75,7 @@ coordinate) node.
 `conf` - spin configuration.
 `i` - integer coordinates of the node.
 """
-@inline function chirality(conf::Configuration, i::IntCoords)
+@inline function chirality(conf::Configuration, i::LatCoords)
     L1, L2 = size(conf)
     tn = triangle_nodes(i, L1, L2)
     θ1 = conf[tn[1]]
@@ -101,7 +101,7 @@ neighbors.
 `J` - Heisenberg interaction constant J.
 """
 @inline function xy_eff_field_contrib(conf::Configuration,
-                                      i::IntCoords;
+                                      i::LatCoords;
                                       J::Float64)::MVector{2, Float64}
     L1, L2 = size(conf)
     res = @MVector zeros(Float64, 2)
@@ -125,7 +125,7 @@ change of a single spin in the cluster.
 """
 @inline function xy_update_eff_field!(eff_field::OffsetArray{Float64, 3},
                                       conf::Configuration,
-                                      i::IntCoords,
+                                      i::LatCoords,
                                       Δθ::Float64;
                                       J::Float64)
     L1, L2 = size(conf)
@@ -133,8 +133,8 @@ change of a single spin in the cluster.
     s, c = sincos(conf[i] + Δθ / 2)
     ΔHx, ΔHy = a * s, -a * c
     for j in neighbors(i, L1, L2)
-        eff_field[1, j...] += ΔHx
-        eff_field[2, j...] += ΔHy
+        eff_field[1, j] += ΔHx
+        eff_field[2, j] += ΔHy
     end
 end
 
@@ -149,7 +149,7 @@ Compute magnitude of the RKKY interaction V(R).
 `V` - RKKY interaction constant V.
 `λ` - interaction range parameter k_F a0.
 """
-function rkky_int(i::IntCoords, V::Float64, λ::Float64)
+function rkky_int(i::LatCoords, V::Float64, λ::Float64)
     r = sqrt(i[1]^2 - i[1] * i[2] + i[2]^2) # r = |i1 a1 + i2 a2| / a0
     return V * (besselj0(λ * r) * bessely0(λ * r) + besselj1(λ * r) * bessely1(λ * r))
 end
@@ -159,7 +159,7 @@ Compute spin rotation angle of the RKKY interaction ϕ(R).
 
 `i` - integer coordinates of R.
 """
-rkky_angle(i::IntCoords) = 8π / 3 * (i[1] - i[2] / 2)
+rkky_angle(i::LatCoords) = 8π / 3 * (i[1] - i[2] / 2)
 
 """
 Make an array of RKKY interactions V_{i1, i2}.
@@ -177,7 +177,7 @@ function make_rkky_int_array(L1::Int, L2::Int, V::Float64, λ::Float64)
     Varr = OffsetArray(zeros(Float64, length(i1r), length(i2r)), i1r, i2r)
     for Δi in CartesianIndices(Varr)
         (Δi[1] == 0 && Δi[2] == 0) && continue
-        Varr[Δi] = rkky_int(Tuple(Δi), V, λ)
+        Varr[Δi] = rkky_int(Δi, V, λ)
     end
     return Varr
 end
@@ -196,7 +196,7 @@ function make_rkky_angle_array(L1::Int, L2::Int)
     ϕ = OffsetArray(zeros(Float64, length(i1r), length(i2r)), i1r, i2r)
     for Δi in CartesianIndices(ϕ)
         (Δi[1] == 0 && Δi[2] == 0) && continue
-        ϕ[Δi] = rkky_angle(Tuple(Δi))
+        ϕ[Δi] = rkky_angle(Δi)
     end
     return ϕ
 end
@@ -210,7 +210,7 @@ nodes.
 `V` - RKKY interaction array.
 `ϕ` - RKKY rotation angle array.
 """
-@inline function rkky_eff_field_contrib(conf::Configuration, i::IntCoords,
+@inline function rkky_eff_field_contrib(conf::Configuration, i::LatCoords,
                                         ::Val{0};
                                         V::OffsetArray{Float64, 2},
                                         ϕ::OffsetArray{Float64, 2})::MVector{2, Float64}
@@ -218,7 +218,7 @@ nodes.
     res = @MVector zeros(Float64, 2)
     for Δi in CartesianIndices(V)
         (Δi == CartesianIndex(0, 0)) && continue # No self-interaction
-        j = periodize(i .+ Tuple(Δi), L1, L2)
+        j = periodize(i + Δi, L1, L2)
         s, c = sincos(conf[j] + ϕ[Δi])
         v = V[Δi]
         res[1] += -v * c
@@ -237,7 +237,7 @@ nodes within a given range `R`.
 `ϕ` - RKKY rotation angle array.
 """
 @inline function rkky_eff_field_contrib(
-    conf::Configuration, i::IntCoords,
+    conf::Configuration, i::LatCoords,
     ::Val{R};
     V::OffsetArray{Float64, 2},
     ϕ::OffsetArray{Float64, 2})::MVector{2, Float64} where R
@@ -245,9 +245,9 @@ nodes within a given range `R`.
     res = @MVector zeros(Float64, 2)
     for r in 1:R
         for Δi in neighbor_shifts(Val(r))
-            j = periodize(i .+ Δi, L1, L2)
-            s, c = sincos(conf[j] + ϕ[Δi...])
-            v = V[Δi...]
+            j = periodize(i + Δi, L1, L2)
+            s, c = sincos(conf[j] + ϕ[Δi])
+            v = V[Δi]
             res[1] += -v * c
             res[2] += -v * s
         end
@@ -268,7 +268,7 @@ after a change of a single spin in the cluster.
 """
 @inline function rkky_update_eff_field!(eff_field::OffsetArray{Float64, 3},
                                         conf::Configuration,
-                                        i::IntCoords,
+                                        i::LatCoords,
                                         ::Val{0},
                                         Δθ::Float64;
                                         V::OffsetArray{Float64, 2},
@@ -278,11 +278,11 @@ after a change of a single spin in the cluster.
     ψ = conf[i] + Δθ / 2
     for Δi in CartesianIndices(V)
         (Δi == CartesianIndex(0, 0)) && continue # No self-interaction
-        j = periodize(i .+ Tuple(Δi), L1, L2)
+        j = periodize(i + Δi, L1, L2)
         s, c = sincos(ψ + ϕ[-Δi])
         v = V[-Δi]
-        eff_field[1, j...] += a * v * s
-        eff_field[2, j...] += -a * v * c
+        eff_field[1, j] += a * v * s
+        eff_field[2, j] += -a * v * c
     end
 end
 
@@ -299,7 +299,7 @@ to the effective field after a change of a single spin in the cluster.
 """
 @inline function rkky_update_eff_field!(eff_field::OffsetArray{Float64, 3},
                                         conf::Configuration,
-                                        i::IntCoords,
+                                        i::LatCoords,
                                         ::Val{R},
                                         Δθ::Float64;
                                         V::OffsetArray{Float64, 2},
@@ -310,10 +310,10 @@ to the effective field after a change of a single spin in the cluster.
     for r in 1:R
         for Δi in neighbor_shifts(Val(r))
             j = periodize(i .+ Δi, L1, L2)
-            s, c = sincos(ψ - ϕ[Δi...])
-            v = V[Δi...]
-            eff_field[1, j...] += a * v * s
-            eff_field[2, j...] += -a * v * c
+            s, c = sincos(ψ - ϕ[Δi])
+            v = V[Δi]
+            eff_field[1, j] += a * v * s
+            eff_field[2, j] += -a * v * c
         end
     end
 end
@@ -350,10 +350,10 @@ mutable struct Measurements
         q_min = (2π / L1, 0.0)
         K = (4π / 3, 0)
         fourier_weights_at_q_min = LatticeArray(
-            i -> exp(-im * dot(q_min, l2c(i...))), ComplexF64, 1, size(conf)...
+            i -> exp(-im * dot(q_min, l2p(i[1], i[2]))), ComplexF64, 1, size(conf)...
         )
         fourier_weights_at_K = LatticeArray(
-            i -> exp(-im * dot(K, l2c(i...))), ComplexF64, 1, size(conf)...
+            i -> exp(-im * dot(K, l2p(i[1], i[2]))), ComplexF64, 1, size(conf)...
         )
         return new(0, [],
                    zeros(2, 0), zeros(ComplexF64, 2, 0), zeros(ComplexF64, 2, 0),
@@ -415,12 +415,12 @@ function MCSimulation(init_conf::Configuration,
     end
 
     eff_field = LatticeArray(Float64, 1, L1, L2, extra_leading_dims=(2,))
-    for i in eachindex(init_conf)
-        eff_field[:, i...] += xy_eff_field_contrib(init_conf, i, J=J)
+    for i in CartesianIndices(init_conf)
+        eff_field[:, i] += xy_eff_field_contrib(init_conf, i, J=J)
         if enable_rkky
-            eff_field[:, i...] += rkky_eff_field_contrib(init_conf, i,
-                                                         Val(rkky_range_cutoff),
-                                                         V=Varr, ϕ=ϕarr)
+            eff_field[:, i] += rkky_eff_field_contrib(init_conf, i,
+                                                      Val(rkky_range_cutoff),
+                                                      V=Varr, ϕ=ϕarr)
         end
     end
 
@@ -470,7 +470,7 @@ function run!(sim::MCSimulation;
     for msc in 1:(n_warmup_mcs + n_mcs)
         # Metropolis sweeps
         for sweep in 1:m_sweeps_per_mcs
-            for i in eachindex(sim.conf)
+            for i in CartesianIndices(sim.conf)
                 if propose!(m_update, i, sim) > rand(sim.rng, Float64)
                     accept!(m_update, sim)
                 end
@@ -494,7 +494,7 @@ mutable struct MetropolisUpdate
     "Proposed spin rotations belong to the interval [-maxΔθ, maxΔθ]"
     const maxΔθ::Float64
     "Integer coordinates of the spin to be updated"
-    i::IntCoords
+    i::LatCoords
     "Proposed angle change"
     Δθ::Float64
     "Total energy change caused by the update"
@@ -504,18 +504,20 @@ mutable struct MetropolisUpdate
     "Number of accepted updates"
     n_accepted::Int
 
-    MetropolisUpdate(L1::Int, L2::Int, maxΔθ::Float64) = new(maxΔθ, (0, 0), .0, .0, 0, 0)
+    MetropolisUpdate(L1::Int, L2::Int, maxΔθ::Float64) = new(
+        maxΔθ, LatCoords(0, 0), .0, .0, 0, 0
+    )
 end
 
 "Propose update of a single spin in the cluster"
-function propose!(update::MetropolisUpdate, i::IntCoords, sim::MCSimulation)::Float64
+function propose!(update::MetropolisUpdate, i::LatCoords, sim::MCSimulation)::Float64
     update.n_proposed += 1
 
     update.i = i
     update.Δθ = update.maxΔθ * (2rand(sim.rng, Float64) - 1)
 
     s, c = sincos(sim.conf[i] + update.Δθ / 2)
-    H = @view sim.eff_field[:, i...]
+    H = @view sim.eff_field[:, i]
     update.ΔE = 4 * sin(update.Δθ / 2) * (s * H[1] - c * H[2])
     return exp(-sim.β * update.ΔE)
 end
@@ -554,11 +556,11 @@ function measure!(sim::MCSimulation)
     # Magnetization at K + q_min = (4π / 3 + 2π / L_1) e_x
     m_at_K_q_min_x, m_at_K_q_min_y = zeros(ComplexF64, 2)
 
-    for i in eachindex(sim.conf)
+    for i in CartesianIndices(sim.conf)
         # Chirality
         χ_i = chirality(sim.conf, i)
         χ += χ_i
-        χ_at_q_min += measures.fourier_weights_at_q_min[i...] * χ_i
+        χ_at_q_min += measures.fourier_weights_at_q_min[i] * χ_i
 
         # Magnetization
         m_x_i = cos(sim.conf[i])
@@ -567,11 +569,11 @@ function measure!(sim::MCSimulation)
         m_x += m_x_i
         m_y += m_y_i
 
-        w_at_K = measures.fourier_weights_at_K[i...]
+        w_at_K = measures.fourier_weights_at_K[i]
         m_at_K_x += w_at_K * m_x_i
         m_at_K_y += w_at_K * m_y_i
 
-        w_at_K_q_min = measures.fourier_weights_at_K_q_min[i...]
+        w_at_K_q_min = measures.fourier_weights_at_K_q_min[i]
         m_at_K_q_min_x += w_at_K_q_min * m_x_i
         m_at_K_q_min_y += w_at_K_q_min * m_y_i
     end

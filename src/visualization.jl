@@ -1,6 +1,6 @@
 module visualization
 
-using MX2RKKY.lattice: l2c
+using MX2RKKY.lattice: l2p
 using MX2RKKY.montecarlo: Configuration, chirality
 
 using PyPlot
@@ -15,8 +15,8 @@ export plot_conf
 function plot_conf(conf::Configuration)
     L1, L2 = size(conf)
 
-    xmin, ymax = l2c(0, L2-1)
-    xmax, ymin = l2c(L1-1, 0)
+    xmin, ymax = l2p(0, L2-1)
+    xmax, ymin = l2p(L1-1, 0)
     fig = plt.figure(figsize=(0.5 * (xmax-xmin), 0.5 * (ymax-ymin)))
 
     # Draw hexagons
@@ -24,12 +24,12 @@ function plot_conf(conf::Configuration)
     hexagon_facecolors = []
     for i1 in 0:(L1-2), i2 in 0:(L2-2)
         χ = Int(round(chirality(conf, (i1, i2))))
-        hexagon = [l2c(i1, i2),
-                   l2c(i1 - 1/3, i2 + 1/3),
-                   l2c(i1, i2 + 1),
-                   l2c(i1 + 2/3, i2 + 4/3),
-                   l2c(i1 + 1, i2 + 1),
-                   l2c(i1 + 2/3, i2 + 1/3)]
+        hexagon = [l2p(i1, i2),
+                   l2p(i1 - 1/3, i2 + 1/3),
+                   l2p(i1, i2 + 1),
+                   l2p(i1 + 2/3, i2 + 4/3),
+                   l2p(i1 + 1, i2 + 1),
+                   l2p(i1 + 2/3, i2 + 1/3)]
         push!(hexagon_verts, hexagon)
         push!(hexagon_facecolors, Dict(-1 => "#ffb9b9", 0 => "#ffffff", 1 => "#beecff")[χ])
     end
@@ -40,11 +40,11 @@ function plot_conf(conf::Configuration)
     ax.add_collection(hexagon)
 
     # Draw spins
-    for i in eachindex(conf)
+    for i in CartesianIndices(conf)
         Sx = 0.5 * cos(conf[i])
         Sy = 0.5 * sin(conf[i])
 
-        x, y = l2c(i...)
+        x, y = l2p(i...)
         plt.arrow(x - Sx/2, y - Sy/2, Sx, Sy, color="red", head_width=0.1)
     end
 

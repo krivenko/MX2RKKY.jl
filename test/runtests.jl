@@ -1,6 +1,6 @@
 using MX2RKKY
 using MX2RKKY.utility: range_of_nonmissing
-using MX2RKKY.lattice: l2c, neighbor_shifts, periodize, neighbors
+using MX2RKKY.lattice: LatCoords, l2p, neighbor_shifts, periodize, neighbors
 using MX2RKKY.montecarlo
 using MX2RKKY.observables
 
@@ -27,20 +27,21 @@ using Aqua
     end
 
     @testset "Lattice" begin
-        @test norm.([l2c(s...) for s in neighbor_shifts(Val(1))]) ≈ ones(6)
-        @test norm.([l2c(s...) for s in neighbor_shifts(Val(2))]) ≈ √3 * ones(6)
-        @test norm.([l2c(s...) for s in neighbor_shifts(Val(3))]) ≈ 2.0 * ones(6)
+        @test norm.([l2p(s[1], s[2]) for s in neighbor_shifts(Val(1))]) ≈ ones(6)
+        @test norm.([l2p(s[1], s[2]) for s in neighbor_shifts(Val(2))]) ≈ √3 * ones(6)
+        @test norm.([l2p(s[1], s[2]) for s in neighbor_shifts(Val(3))]) ≈ 2.0 * ones(6)
 
         L1, L2 = 3, 9
-        @test neighbors((0, 0), L1, L2) ==
-              [(1, 0), (0, 8), (2, 8), (2, 0), (0, 1), (1, 1)]
+        @test neighbors(LatCoords(0, 0), L1, L2) ==
+              [LatCoords(1, 0), LatCoords(0, 8), LatCoords(2, 8),
+               LatCoords(2, 0), LatCoords(0, 1), LatCoords(1, 1)]
     end
 
     @testset "Configuration" begin
         cm1 = Configuration(9, 15, -1)
         cp1 = Configuration(9, 15, 1)
-        @test all(montecarlo.chirality(cm1, i) == -1 for i in eachindex(cm1))
-        @test all(montecarlo.chirality(cp1, i) == 1 for i in eachindex(cp1))
+        @test all(montecarlo.chirality(cm1, i) == -1 for i in CartesianIndices(cm1))
+        @test all(montecarlo.chirality(cp1, i) == 1 for i in CartesianIndices(cp1))
 
         c_rnd = Configuration(9, 15, MersenneTwister(123456))
     end
@@ -54,7 +55,7 @@ using Aqua
         V = 3.0
         λ = 0.1
 
-        i = (3, 2)
+        i = LatCoords(3, 2)
 
         @test montecarlo.rkky_int(i, V, λ) * cos(montecarlo.rkky_angle(i)) ≈
               1.821551601453564
@@ -74,7 +75,7 @@ using Aqua
         V = 0.2
         λ = 0.1
 
-        shift_p(i, Δi) = periodize(i .+ Tuple(Δi), L1, L2)
+        shift_p(i, Δi) = periodize(i + Δi, L1, L2)
 
         @testset "Ordered init_conf" begin
             rng = MersenneTwister(123456)
@@ -93,22 +94,25 @@ using Aqua
 
         function energy_ref(θ, sim)
             # The 0.5 accounts for each link between nodes being visited twice
-            E = 0.5 * sum(J * cos(θ[i...] - θ[j...])
-                 for i in eachindex(sim.conf), j in eachindex(sim.conf)
+            E = 0.5 * sum(J * cos(θ[i] - θ[j])
+                 for i in CartesianIndices(sim.conf),
+                     j in CartesianIndices(sim.conf)
                  if j ∈ montecarlo.neighbors(i, L1, L2)
             )
             if !isnothing(sim.V)
                 if sim.rkky_range_cutoff == 0
                     E += sum(sim.V[Δi] *
-                             cos(θ[i...] - θ[shift_p(i, Δi)...] - sim.ϕ[Δi])
-                             for i in eachindex(sim.conf), Δi in CartesianIndices(sim.V)
+                             cos(θ[i] - θ[shift_p(i, Δi)] - sim.ϕ[Δi])
+                             for i in CartesianIndices(sim.conf),
+                                Δi in CartesianIndices(sim.V)
                              if Δi != CartesianIndex(0, 0))
                 else
                     for r in 1:sim.rkky_range_cutoff
                         R = Val(r)
-                        E += sum(sim.V[Δi...] *
-                                 cos(θ[i...] - θ[shift_p(i, Δi)...] - sim.ϕ[Δi...])
-                                 for i in eachindex(sim.conf), Δi in neighbor_shifts(R))
+                        E += sum(sim.V[Δi] *
+                                 cos(θ[i] - θ[shift_p(i, Δi)] - sim.ϕ[Δi])
+                                 for i in CartesianIndices(sim.conf),
+                                    Δi in neighbor_shifts(R))
                     end
                 end
             end
