@@ -151,6 +151,8 @@ MPI.Init()
                 @show susc_spin_K(sim)
                 @show binder_spin_K(sim)
                 @show corr_length_spin_K(sim)
+                @show norm(corr_chirality_spin_K(sim))
+                @show norm(cov_chirality_spin_K(sim))
             end
         end
     end

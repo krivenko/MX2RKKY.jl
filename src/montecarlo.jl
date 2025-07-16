@@ -347,6 +347,8 @@ mutable struct Measurements
     chirality_sums::Vector{Float64}
     "Squared chirality |χ(q)|^2 at q=q_min=(2π / L_1) e_x summed over MC samples"
     chirality_at_q_min_2_sum::ComplexF64
+    "Product χ m(K) summed over MC samples"
+    chirality_magnetization_at_K_sum::Vector{ComplexF64}
     "Fourier weights exp(-i q_min r_i)"
     fourier_weights_at_q_min::OffsetArray{ComplexF64, 2}
     "Fourier weights exp(-i K r_i)"
@@ -366,7 +368,7 @@ mutable struct Measurements
         )
         return new(0, Inf64, zeros(Float64, 4),
                    zeros(ComplexF64, 2), zeros(Float64, 4), zeros(Float64, 4),
-                   zeros(Float64, 4), .0,
+                   zeros(Float64, 4), .0, zeros(ComplexF64, 2),
                    fourier_weights_at_q_min,
                    fourier_weights_at_K,
                    fourier_weights_at_K .* fourier_weights_at_q_min)
@@ -383,6 +385,7 @@ function reset!(m::Measurements)
     fill!(m.magnetization_at_K_q_min_norm_sums, 0.)
     fill!(m.chirality_sums, .0)
     m.chirality_at_q_min_2_sum = 0
+    fill!(m.chirality_magnetization_at_K_sum, .0)
 end
 
 "MPI-reduction (summation) of measurement results"
@@ -395,6 +398,7 @@ function Allreduce!(m::Measurements, comm::MPI.Comm)
     MPI.Allreduce!(m.magnetization_at_K_q_min_norm_sums, +, comm)
     MPI.Allreduce!(m.chirality_sums, +, comm)
     m.chirality_at_q_min_2_sum = MPI.Allreduce(m.chirality_at_q_min_2_sum, +, comm)
+    MPI.Allreduce!(m.chirality_magnetization_at_K_sum, +, comm)
 end
 
 "State of a Monte Carlo simulation"
@@ -639,6 +643,8 @@ function measure!(sim::MCSimulation)
     m.magnetization_at_K_sum .+= magn_at_K ./ N
     m.magnetization_at_K_norm_sums .+= norm(magn_at_K ./ N) .^ (1:4)
     m.magnetization_at_K_q_min_norm_sums .+= norm(magn_at_K_q_min ./ N) .^ (1:4)
+
+    m.chirality_magnetization_at_K_sum .+= (χ * magn_at_K) ./ (N^2)
 end
 
 end # module montecarlo

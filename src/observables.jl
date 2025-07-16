@@ -9,6 +9,7 @@ using MX2RKKY.montecarlo: MCSimulation
 export min_energy, avg_energy, var_energy, specific_heat
 export avg_chirality, var_chirality, susc_chirality, binder_chirality, corr_length_chirality
 export susc_spin_K, binder_spin_K, corr_length_spin_K
+export corr_chirality_spin_K, cov_chirality_spin_K
 
 #
 # Extract observables from a simulation structure
@@ -90,6 +91,28 @@ function corr_length_spin_K(sim::MCSimulation)
     magn2_avg = m.magnetization_at_K_norm_sums[2] / m.count
     magn_at_q_min_2_avg = m.magnetization_at_K_q_min_norm_sums[2] / m.count
     return sqrt(complex((magn2_avg / magn_at_q_min_2_avg) - 1)) / (2 * sin(π / L1))
+end
+
+"""
+Extract correlation between the chirality and the K-point magnetization from a simulation
+structure.
+"""
+function corr_chirality_spin_K(sim::MCSimulation)
+    m = sim.measurements
+    return m.chirality_magnetization_at_K_sum / m.count
+end
+
+"""
+Extract covariance between the chirality and the K-point magnetization from a simulation
+structure.
+"""
+function cov_chirality_spin_K(sim::MCSimulation)
+    m = sim.measurements
+    N = m.count
+    χ_magn_at_K_avg = corr_chirality_spin_K(sim)
+    χ_avg = avg_chirality(sim)
+    magn_at_K_avg = m.magnetization_at_K_sum / m.count
+    return (χ_magn_at_K_avg .- χ_avg .* magn_at_K_avg) * N / (N - 1)
 end
 
 end # module observables
