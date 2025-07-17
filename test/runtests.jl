@@ -135,24 +135,33 @@ MPI.Init()
                 @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
 
                 acceptance_rate = run!(sim, n_mcs=1000, n_warmup_mcs=200,
-                                       or_sweeps_per_mcs=1)
+                                       or_sweeps_per_mcs=1,
+                                       show_progress = (rank == 0))
                 @show acceptance_rate
                 @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
 
-                @show min_energy(sim)
-                @show avg_energy(sim)
-                @show var_energy(sim)
-                @show specific_heat(sim)
-                @show avg_chirality(sim)
-                @show var_chirality(sim)
-                @show susc_chirality(sim)
-                @show binder_chirality(sim)
-                @show corr_length_chirality(sim)
-                @show susc_spin_K(sim)
-                @show binder_spin_K(sim)
-                @show corr_length_spin_K(sim)
-                @show norm(corr_chirality_spin_K(sim))
-                @show norm(cov_chirality_spin_K(sim))
+                if rank == 0
+                    @show sim.measurements.count
+                    @show min_energy(sim)
+                    @show avg_energy(sim)
+                    @show var_energy(sim)
+                    @show err_energy(sim)
+                    @show specific_heat(sim)
+                    @show avg_chirality(sim)
+                    @show var_chirality(sim)
+                    @show err_chirality(sim)
+                    @show susc_chirality(sim)
+                    @show binder_chirality(sim)
+                    @show corr_length_chirality(sim)
+                    @show norm(avg_spin_K(sim))
+                    @show var_spin_K(sim)
+                    @show err_spin_K(sim)
+                    @show susc_spin_K(sim)
+                    @show binder_spin_K(sim)
+                    @show corr_length_spin_K(sim)
+                    @show norm(corr_chirality_spin_K(sim))
+                    @show norm(cov_chirality_spin_K(sim))
+                end
             end
         end
     end
