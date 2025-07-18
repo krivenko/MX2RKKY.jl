@@ -95,7 +95,7 @@ function var_spin_K(sim::MCSimulation)
     N = m.count
     magn_avg = avg_spin_K(sim)
     magn2_avg = m.magnetization_at_K_norm_sums[2] / m.count
-    return (magn2_avg - norm(magn_avg) ^ 2) * N / (N - 1)
+    return sqrt((magn2_avg - norm(magn_avg) ^ 2) * N / (N - 1))
 end
 
 """
