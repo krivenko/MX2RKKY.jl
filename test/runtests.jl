@@ -74,7 +74,7 @@ MPI.Init()
         L1 = 9
         L2 = 15
 
-        β = 10.0
+        β = 0.3
         J = 2.0
         V = 0.2
         λ = 0.1
@@ -153,14 +153,20 @@ MPI.Init()
                     @show susc_chirality(sim)
                     @show binder_chirality(sim)
                     @show corr_length_chirality(sim)
-                    @show norm(avg_spin_K(sim))
+                    @show avg_spin_K(sim)
+                    @show avg_norm_spin_K(sim)
+                    @show avg_dir_spin_K(sim)
                     @show var_spin_K(sim)
                     @show err_spin_K(sim)
                     @show susc_spin_K(sim)
                     @show binder_spin_K(sim)
                     @show corr_length_spin_K(sim)
-                    @show norm(corr_chirality_spin_K(sim))
-                    @show norm(cov_chirality_spin_K(sim))
+                    @show corr_chirality_spin_K(sim)
+                    @show corr_chirality_norm_spin_K(sim)
+                    @show cov_chirality_spin_K(sim)
+                    @show cov_chirality_norm_spin_K(sim)
+                    @show cov_chirality_long_spin_K(sim)
+                    @show cov_chirality_trans_spin_K(sim)
                 end
             end
         end

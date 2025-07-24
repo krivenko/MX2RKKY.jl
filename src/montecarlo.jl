@@ -1,7 +1,7 @@
 module montecarlo
 
 using OffsetArrays: OffsetArray, Origin
-using LinearAlgebra: dot, issymmetric, diag, norm
+using LinearAlgebra: dot, issymmetric, diag, norm, normalize
 using SpecialFunctions: besselj0, besselj1, bessely0, bessely1
 using Random: AbstractRNG, MersenneTwister, rand
 using StaticArrays: MVector, @MVector
@@ -338,6 +338,8 @@ mutable struct Measurements
     summed over MC samples
     """
     magnetization_at_K_norm_sums::Vector{Float64}
+    "Direction of the magnetization m(K)/|m(K)| at K = (4π / 3) e_x summed over MC samples"
+    magnetization_at_K_dir_sum::Vector{ComplexF64}
     """
     Powers of norm of magnetization |m(K + q_min)|^p at K + q_min = (4π / 3 + 2π / L_1) e_x
     for p=1:4 summed over MC samples
@@ -349,6 +351,10 @@ mutable struct Measurements
     chirality_at_q_min_2_sum::ComplexF64
     "Product χ m(K) summed over MC samples"
     chirality_magnetization_at_K_sum::Vector{ComplexF64}
+    "Product χ |m(K)| summed over MC samples"
+    chirality_magnetization_at_K_norm_sum::Float64
+    "Product χ m(K)/|m(K)| summed over MC samples"
+    chirality_magnetization_at_K_dir_sum::Vector{ComplexF64}
     "Fourier weights exp(-i q_min r_i)"
     fourier_weights_at_q_min::OffsetArray{ComplexF64, 2}
     "Fourier weights exp(-i K r_i)"
@@ -366,9 +372,18 @@ mutable struct Measurements
         fourier_weights_at_K = LatticeArray(
             i -> exp(-im * dot(K, l2p(i[1], i[2]))), ComplexF64, 1, size(conf)...
         )
-        return new(0, Inf64, zeros(Float64, 4),
-                   zeros(ComplexF64, 2), zeros(Float64, 4), zeros(Float64, 4),
-                   zeros(Float64, 4), .0, zeros(ComplexF64, 2),
+        return new(0,                       # count
+                   Inf64,                   # energy_min
+                   zeros(Float64, 4),       # energy_sums
+                   zeros(ComplexF64, 2),    # magnetization_at_K_sum
+                   zeros(Float64, 4),       # magnetization_at_K_norm_sums
+                   zeros(ComplexF64, 2),    # magnetization_at_K_dir_sum
+                   zeros(Float64, 4),       # magnetization_at_K_q_min_norm_sums
+                   zeros(Float64, 4),       # chirality_sums
+                   .0,                      # chirality_at_q_min_2_sum
+                   zeros(ComplexF64, 2),    # chirality_magnetization_at_K_sum
+                   .0,                      # chirality_magnetization_at_K_norm_sum
+                   zeros(ComplexF64, 2),    # chirality_magnetization_at_K_dir_sum
                    fourier_weights_at_q_min,
                    fourier_weights_at_K,
                    fourier_weights_at_K .* fourier_weights_at_q_min)
@@ -382,10 +397,13 @@ function reset!(m::Measurements)
     fill!(m.energy_sums, .0)
     fill!(m.magnetization_at_K_sum, 0.)
     fill!(m.magnetization_at_K_norm_sums, 0.)
+    fill!(m.magnetization_at_K_dir_sum, .0)
     fill!(m.magnetization_at_K_q_min_norm_sums, 0.)
     fill!(m.chirality_sums, .0)
     m.chirality_at_q_min_2_sum = 0
     fill!(m.chirality_magnetization_at_K_sum, .0)
+    m.chirality_magnetization_at_K_norm_sum = 0
+    fill!(m.chirality_magnetization_at_K_dir_sum, .0)
 end
 
 "MPI-reduction (summation) of measurement results"
@@ -395,10 +413,17 @@ function Allreduce!(m::Measurements, comm::MPI.Comm)
     MPI.Allreduce!(m.energy_sums, +, comm)
     MPI.Allreduce!(m.magnetization_at_K_sum, +, comm)
     MPI.Allreduce!(m.magnetization_at_K_norm_sums, +, comm)
+    MPI.Allreduce!(m.magnetization_at_K_dir_sum, +, comm)
     MPI.Allreduce!(m.magnetization_at_K_q_min_norm_sums, +, comm)
     MPI.Allreduce!(m.chirality_sums, +, comm)
     m.chirality_at_q_min_2_sum = MPI.Allreduce(m.chirality_at_q_min_2_sum, +, comm)
     MPI.Allreduce!(m.chirality_magnetization_at_K_sum, +, comm)
+    m.chirality_magnetization_at_K_norm_sum = MPI.Allreduce(
+        m.chirality_magnetization_at_K_norm_sum, +, comm
+    )
+    m.chirality_magnetization_at_K_dir_sum = MPI.Allreduce(
+        m.chirality_magnetization_at_K_dir_sum, +, comm
+    )
 end
 
 "State of a Monte Carlo simulation"
@@ -637,14 +662,22 @@ function measure!(sim::MCSimulation)
         magn_at_K_q_min .+= w_at_K_q_min .* (magn_x_i, magn_y_i)
     end
 
-    m.chirality_sums .+= (χ / N) .^ (1:4)
-    m.chirality_at_q_min_2_sum += abs(χ_at_q_min / N) ^ 2
+    χ /= N
+    χ_at_q_min /= N
+    magn_at_K ./= N
+    magn_at_K_q_min ./= N
 
-    m.magnetization_at_K_sum .+= magn_at_K ./ N
-    m.magnetization_at_K_norm_sums .+= norm(magn_at_K ./ N) .^ (1:4)
-    m.magnetization_at_K_q_min_norm_sums .+= norm(magn_at_K_q_min ./ N) .^ (1:4)
+    m.chirality_sums .+= χ .^ (1:4)
+    m.chirality_at_q_min_2_sum += abs(χ_at_q_min) ^ 2
 
-    m.chirality_magnetization_at_K_sum .+= (χ * magn_at_K) ./ (N^2)
+    m.magnetization_at_K_sum .+= magn_at_K
+    m.magnetization_at_K_dir_sum .+= normalize(magn_at_K)
+    m.magnetization_at_K_norm_sums .+= norm(magn_at_K) .^ (1:4)
+    m.magnetization_at_K_q_min_norm_sums .+= norm(magn_at_K_q_min) .^ (1:4)
+
+    m.chirality_magnetization_at_K_sum .+= χ * magn_at_K
+    m.chirality_magnetization_at_K_norm_sum += χ * norm(magn_at_K)
+    m.chirality_magnetization_at_K_dir_sum .+= χ * normalize(magn_at_K)
 end
 
 end # module montecarlo
