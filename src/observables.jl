@@ -9,7 +9,7 @@ using MX2RKKY.montecarlo: MCSimulation
 export min_energy, avg_energy, var_energy, err_energy, specific_heat
 export avg_chirality, var_chirality, err_chirality, susc_chirality, binder_chirality
 export corr_length_chirality
-export avg_spin_K, avg_norm_spin_K, avg_dir_spin_K, var_spin_K, err_spin_K
+export avg_spin_K, avg_norm_spin_K, avg_dir_spin_K, var_spin_K, err_spin_K, var_norm_spin_K
 export susc_spin_K, binder_spin_K, corr_length_spin_K
 export corr_chirality_spin_K, corr_chirality_norm_spin_K
 export cov_chirality_spin_K, cov_chirality_norm_spin_K
@@ -107,8 +107,17 @@ function var_spin_K(sim::MCSimulation)
     m = sim.measurements
     N = m.count
     magn_avg = avg_spin_K(sim)
-    magn2_avg = m.magnetization_at_K_norm_sums[2] / m.count
+    magn2_avg = m.magnetization_at_K_norm_sums[2] / N
     return sqrt((magn2_avg - norm(magn_avg) ^ 2) * N / (N - 1))
+end
+
+"Extract variance of the norm of the K-point magnetization from a simulation structure."
+function var_norm_spin_K(sim::MCSimulation)
+    m = sim.measurements
+    N = m.count
+    magn_norm_avg = avg_norm_spin_K(sim)
+    magn2_avg = m.magnetization_at_K_norm_sums[2] / N
+    return sqrt((magn2_avg - magn_norm_avg ^ 2) * N / (N - 1))
 end
 
 """
