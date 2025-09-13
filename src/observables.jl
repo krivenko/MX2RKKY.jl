@@ -129,7 +129,7 @@ err_spin_K(sim::MCSimulation) = var_spin_K(sim) / sqrt(sim.measurements.count)
 "Extract K-point spin susceptibility from a simulation structure."
 function susc_spin_K(sim::MCSimulation)
     L1, L2 = size(sim.conf)
-    return L1 * L2 * sim.β * var_spin_K(sim)
+    return L1 * L2 * sim.β * var_spin_K(sim) ^ 2
 end
 
 "Extract K-point spin norm susceptibility from a simulation structure."
