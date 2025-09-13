@@ -10,7 +10,7 @@ export min_energy, avg_energy, var_energy, err_energy, specific_heat
 export avg_chirality, var_chirality, err_chirality, susc_chirality, binder_chirality
 export corr_length_chirality
 export avg_spin_K, avg_norm_spin_K, avg_dir_spin_K, var_spin_K, err_spin_K, var_norm_spin_K
-export susc_spin_K, binder_spin_K, corr_length_spin_K
+export susc_spin_K, susc_norm_spin_K, binder_spin_K, corr_length_spin_K
 export corr_chirality_spin_K, corr_chirality_norm_spin_K
 export cov_chirality_spin_K, cov_chirality_norm_spin_K
 export cov_chirality_long_spin_K, cov_chirality_trans_spin_K
@@ -130,6 +130,12 @@ err_spin_K(sim::MCSimulation) = var_spin_K(sim) / sqrt(sim.measurements.count)
 function susc_spin_K(sim::MCSimulation)
     L1, L2 = size(sim.conf)
     return L1 * L2 * sim.β * var_spin_K(sim)
+end
+
+"Extract K-point spin norm susceptibility from a simulation structure."
+function susc_norm_spin_K(sim::MCSimulation)
+    L1, L2 = size(sim.conf)
+    return L1 * L2 * sim.β * var_norm_spin_K(sim) ^ 2
 end
 
 "Extract K-point spin Binder cumulant from a simulation structure."
