@@ -9,13 +9,14 @@ using MX2RKKY.montecarlo: Configuration, chirality
 export plot_conf
 
 "Visualize a spin configuration and chirality of hexagonal cells"
-function plot_conf(conf::Configuration)
+function plot_conf(conf::Configuration; hideticks=false)
     L1, L2 = size(conf)
 
     xmin, ymax = l2p(0, L2-1)
     xmax, ymin = l2p(L1-1, 0)
     fig = Figure(size = 50 .* (0.5 * (xmax-xmin), 0.5 * (ymax-ymin)), fontsize = 12 * 4/3)
     ax = Axis(fig, xgridvisible = false, ygridvisible = false)
+    hideticks && hidedecorations!(ax)
 
     # Draw hexagons
     hexagons = Polygon[]
@@ -29,7 +30,7 @@ function plot_conf(conf::Configuration)
                    l2p(i1 + 1, i2 + 1),
                    l2p(i1 + 2/3, i2 + 1/3)]
         push!(hexagons, Polygon(Point2f.(hexagon)))
-        push!(hexagon_facecolors, Dict(-1 => "#ffb9b9", 0 => "#ffffff", 1 => "#beecff")[χ])
+        push!(hexagon_facecolors, Dict(1 => "#ffb9b9", 0 => "#ffffff", -1 => "#beecff")[χ])
     end
     poly!(hexagons, strokecolor=:black, strokewidth=0.75, color=hexagon_facecolors)
 
@@ -45,8 +46,8 @@ function plot_conf(conf::Configuration)
                [PolyElement(color="#ffb9b9"),
                 PolyElement(color="#ffffff"),
                 PolyElement(color="#beecff")],
-               [L"\chi=-1", L"\chi=0", L"\chi=1"],
-               patchsize=(25, 25),
+               [L"\chi=1", L"\chi=0", L"\chi=-1"],
+               patchsize=(20, 20),
                rowgap=10)
 
     xlims!(ax, (xmin - 1.0, xmax + 1.0))
