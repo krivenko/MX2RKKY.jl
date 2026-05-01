@@ -97,9 +97,12 @@ function make_observables_df(ar)
     colmetadata!(df, :susc_spin_K, "ylabel", L"$\chi_s = \langle(\delta\vec{m}(\vec{K}))^2\rangle / T$", style=:note)
 
     # Norm of magnetization at K-point: susceptibility
-    insertcols!(df, "susc_norm_spin_K" => collect_from_h5(ar, "susc_norm_spin_K") / L^2)
-    colmetadata!(df, :susc_norm_spin_K, "plot", true, style=:note)
-    colmetadata!(df, :susc_norm_spin_K, "ylabel", L"$\chi_{|s|} = \langle\delta|\vec{m}(\vec{K})|^2\rangle / T$", style=:note)
+    try
+        insertcols!(df, "susc_norm_spin_K" => collect_from_h5(ar, "susc_norm_spin_K") / L^2)
+        colmetadata!(df, :susc_norm_spin_K, "plot", true, style=:note)
+        colmetadata!(df, :susc_norm_spin_K, "ylabel", L"$\chi_{|s|} = \langle\delta|\vec{m}(\vec{K})|^2\rangle / T$", style=:note)
+    catch KeyError
+    end
 
     # Magnetization at K-point: Binder cumulant
     insertcols!(df, "binder_spin_K" => collect_from_h5(ar, "binder_spin_K"))
