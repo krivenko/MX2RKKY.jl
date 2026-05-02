@@ -7,6 +7,7 @@ using CSV
 
 using Makie
 using CairoMakie
+using LaTeXStrings
 
 "Collect T-scan data from an HDF5 archive"
 function collect_from_h5(ar, name)
@@ -28,6 +29,9 @@ function make_observables_df(ar)
     metadata!(df, "lambda", params["lambda"], style=:note)
     if "rkky_range_cutoff" in keys(params)
         metadata!(df, "rkky_range_cutoff", params["rkky_range_cutoff"], style=:note)
+    end
+    if "init_chi" in keys(params)
+        metadata!(df, "init_chi", params["init_chi"], style=:note)
     end
 
     # Energy
@@ -138,7 +142,7 @@ end
 "Plot T-scan data stored in a DataFrame"
 function plot_observables(dfs::Vector{DataFrame}; figsize=(1000, 2000), pdfname)
     all_cols = union(keys.(eachcol.(dfs))...)
-    plot_col = name -> (name != :T) && any([colmetadata(df, name, "plot") for df in dfs])
+    plot_col = name -> (name != :T) && any([hasproperty(df, name) && colmetadata(df, name, "plot") for df in dfs])
     nplots = count(plot_col, all_cols)
 
     T = dfs[1].T
@@ -163,14 +167,18 @@ function plot_observables(dfs::Vector{DataFrame}; figsize=(1000, 2000), pdfname)
             lambda = metadata(df, "lambda")
             R = metadata(df, "rkky_range_cutoff")
             if R == 0
-                label = L"$V=%$(V),\ k_F a_0 = %$(lambda),\ R_V=\infty,\ L=%$(L)$"
+                label = "V=$(V),\\ k_F a_0 = $(lambda),\\ R_V=\\infty,\\ L=$(L)"
             else
-                label = L"$V=%$(V),\ k_F a_0 = %$(lambda),\ R_V=%$(R),\ L=%$(L)$"
+                label = "V=$(V),\\ k_F a_0 = $(lambda),\\ R_V=$(R),\\ L=$(L)"
+            end
+            if "init_chi" in keys(metadata(df))
+                init_chi = metadata(df, "init_chi")
+                label *= ",\\ \\chi_0 = $(init_chi)"
             end
 
             data = df[!, name]
 
-            lines!(ax, df.T, data, linewidth=1.0, label=label)
+            lines!(ax, df.T, data, linewidth=1.0, label=latexstring(label))
             if "errors" in keys(colmetadata(df, name))
                 errors = df[!, colmetadata(df, name, "errors")]
                 errorbars!(ax, df.T, data, errors, linewidth=1.0)
