@@ -1,5 +1,7 @@
 # Monte-Carlo simulation of RKKY-induced chirality of two-dimensional antiferromagnet
 
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-red)](
+https://krivenko.github.io/MX2RKKY.jl)
 [![Aqua](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](
 https://github.com/JuliaTesting/Aqua.jl)
 

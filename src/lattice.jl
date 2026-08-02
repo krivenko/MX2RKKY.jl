@@ -1,3 +1,4 @@
+"Geometry and graph representation of a triangular lattice cluster"
 module lattice
 
 using OffsetArrays: OffsetArray

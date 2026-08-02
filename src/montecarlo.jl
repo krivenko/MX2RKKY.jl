@@ -1,3 +1,4 @@
+"Implementation of the Monte Carlo sampling"
 module montecarlo
 
 using OffsetArrays: OffsetArray, Origin

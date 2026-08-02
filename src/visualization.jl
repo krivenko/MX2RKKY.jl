@@ -1,3 +1,4 @@
+"Visualization (plotting) functions"
 module visualization
 
 using CairoMakie

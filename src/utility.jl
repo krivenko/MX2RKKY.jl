@@ -1,3 +1,4 @@
+"Utility functions"
 module utility
 
 "Cast a given angle ϕ into the range [-π; π]"

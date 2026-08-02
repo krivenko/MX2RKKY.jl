@@ -1,3 +1,4 @@
+"Extraction of physical observables from Monte Carlo sampling results"
 module observables
 
 using LinearAlgebra: norm, dot, cross

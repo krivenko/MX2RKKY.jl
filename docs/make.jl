@@ -15,3 +15,8 @@ makedocs(;
         "Home" => "index.md",
     ],
 )
+
+deploydocs(
+    repo = "github.com/krivenko/MX2RKKY.jl.git",
+    versions = nothing
+)
