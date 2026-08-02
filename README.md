@@ -2,6 +2,8 @@
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-red)](
 https://krivenko.github.io/MX2RKKY.jl)
+[![CI](https://github.com/krivenko/MX2RKKY.jl/actions/workflows/CI.yml/badge.svg)](
+https://github.com/krivenko/MX2RKKY.jl/actions/workflows/CI.yml)
 [![Aqua](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](
 https://github.com/JuliaTesting/Aqua.jl)
 

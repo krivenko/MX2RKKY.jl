@@ -1,0 +1,42 @@
+name: Build, test and deploy docs
+
+on:
+  push:
+    branches:
+      - main
+      - ci
+  pull_request:
+    branches:
+      - main
+
+# Needed to allow julia-actions/cache to delete old caches
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  test:
+    name: Julia ${{ matrix.version }} - ${{ github.event_name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - '1.8'
+          - '1.9'
+          - '1.10'
+          - '1.11'
+          - '1.12'
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.version }}
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1
+      - uses: julia-actions/julia-docdeploy@v1
+        if: github.ref == 'refs/heads/master' && matrix.version == '1.12'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
