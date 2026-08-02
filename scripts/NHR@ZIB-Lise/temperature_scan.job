@@ -1,0 +1,34 @@
+#!/bin/bash
+#SBATCH --job-name=MX2RKKY_T_scan
+#SBATCH --partition=cpu-clx
+#SBATCH --nodes=2
+#SBATCH --time=12:00:00
+#SBATCH --array=0-24
+#SBATCH --output=RKKY_T_scan-%A_%a.out
+
+#
+# NHR@ZIB "Lise" job script for temperature_scan.jl
+#
+
+id=$SLURM_ARRAY_TASK_ID
+
+# Range parameter of the RKKY interaction, k_F a_0
+lambda=0.1
+# Use the full radius of the RKKY interaction (effectively L/2)
+rkky_range_cutoff=0
+# Initial state: 120 degree Néel state with \chi=1
+init_chi=1
+
+# Select V
+declare -a V_LIST=(0.001 0.005 0.01 0.05 0.1)
+V=${V_LIST[$(($id / 5))]}
+# Select L
+declare -a L_LIST=(9 15 21 27 33)
+L=${L_LIST[$(($id % 5))]}
+
+~/.julia/bin/mpiexecjl -np 192 julia temperature_scan.jl \
+    --L "$L"                                             \
+    --V "$V"                                             \
+    --lambda "$lambda"                                   \
+    --rkky_range_cutoff "$rkky_range_cutoff"             \
+    --init_chi "$init_chi"

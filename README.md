@@ -25,3 +25,8 @@ In Julia REPL:
 ```julia
 ] add https://github.com/krivenko/MX2RKKY.jl
 ```
+
+## Simulation scripts
+
+Julia scripts used to run simulations on the [NHR@ZIB](https://nhr.zib.de/en/) "Lise" system
+can be found in [scripts/NHR@ZIB-Lise](scripts/NHR@ZIB-Lise).

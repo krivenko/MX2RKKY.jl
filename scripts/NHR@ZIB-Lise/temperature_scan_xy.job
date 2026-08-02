@@ -1,0 +1,21 @@
+#!/bin/bash
+#SBATCH --job-name=MX2RKKY_xy_T_scan
+#SBATCH --partition=cpu-clx
+#SBATCH --nodes=2
+#SBATCH --time=12:00:00
+#SBATCH --array=0-4
+#SBATCH --output=XY_T_scan-%A_%a.out
+
+#
+# NHR@ZIB "Lise" job script for temperature_scan_xy.jl
+#
+
+id=$SLURM_ARRAY_TASK_ID
+
+# Select L
+declare -a L=(9 15 21 27 33)
+# Initial state: 120 degree Néel state with \chi=1
+init_chi=1
+
+~/.julia/bin/mpiexecjl -np 192 julia temperature_scan_xy.jl \
+    --L "${L[$id]}" --init_chi "$init_chi"
