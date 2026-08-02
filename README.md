@@ -15,8 +15,8 @@ chiral interaction between local magnetic moments.
 
 This code was used to produce numerical data presented in
 
-> Valley-controlled chiral magnetism in transition metal dichalcogenide monolayers
-> I. S. Krivenko, V. N. Mantsevich, D. S. Smirnov
+> Valley-controlled chiral magnetism in transition metal dichalcogenide monolayers,
+> I. S. Krivenko, V. N. Mantsevich, D. S. Smirnov,
 > arXiv preprint [arXiv:2608.00000](https://arxiv.org/abs/2608.00000)
 
 ## Installation
