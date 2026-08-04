@@ -1,4 +1,7 @@
-"Monte-Carlo simulation of RKKY-induced chirality of two-dimensional antiferromagnet"
+"""
+Classical Monte Carlo simulations of the triangular-lattice XY antiferromagnet with
+a chiral RKKY interaction
+"""
 module MX2RKKY
 
 include("utility.jl")

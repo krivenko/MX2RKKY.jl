@@ -1,4 +1,4 @@
-# Monte-Carlo simulation of RKKY-induced chirality of two-dimensional antiferromagnet
+# MX2RKKY.jl
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-red)](
 https://krivenko.github.io/MX2RKKY.jl)
@@ -9,15 +9,15 @@ https://github.com/JuliaTesting/Aqua.jl)
 
 Copyright (C) 2024-2026 Igor Krivenko
 
-This repository contains a Julia implementation of the Monte Carlo algorithm
-used to study magnetic order in an XY-model on a triangular lattice with a long-range
-chiral interaction between local magnetic moments.
+Classical Monte Carlo simulations of the triangular-lattice XY antiferromagnet with
+a chiral RKKY interaction, as realized by magnetic adatoms on a transition metal
+dichalcogenide (MX2) monolayer.
 
 This code was used to produce numerical data presented in
 
 > Valley-controlled chiral magnetism in transition metal dichalcogenide monolayers,
 > I. S. Krivenko, V. N. Mantsevich, D. S. Smirnov,
-> arXiv preprint [arXiv:2608.00000](https://arxiv.org/abs/2608.00000)
+> arXiv preprint [arXiv:2608.02260](https://arxiv.org/abs/2608.02260)
 
 ## Installation
 
