@@ -112,7 +112,7 @@ if rank == 0
         params["seed"] = seed
         params["n_vacancies"] = n_vacancies
         params["disorder_seed"] = disorder_seed
-        params["occupied"] = UInt8.(collect(occupied))
+        params["occupied"] = UInt8.(parent(occupied))
     end
 end
 
@@ -146,7 +146,7 @@ for (n, T) in enumerate(T_range)
     if rank == 0
         h5open(outfile, "cw") do ar
             out = create_group(ar, "T$(T)")
-            out["final_conf"] = sim.conf.θ
+            out["final_conf"] = parent(sim.conf.θ)
             # Measurements
             for measure in fieldnames(typeof(sim.measurements))
                 name = string(measure)
