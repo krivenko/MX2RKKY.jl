@@ -48,6 +48,18 @@ MPI.Init()
         @test all(montecarlo.chirality(cp1, i) == 1 for i in CartesianIndices(cp1))
 
         c_rnd = Configuration(9, 15, MersenneTwister(123456))
+        @test all(c_rnd.occupied)
+
+        occ = random_occupation(9, 15, 20, MersenneTwister(123456))
+        @test axes(occ) == axes(c_rnd.θ)
+        @test count(.!occ) == 20
+        @test occ == random_occupation(9, 15, 20, MersenneTwister(123456))
+
+        c_vac = Configuration(9, 15, 1, occupied=occ)
+        @test montecarlo.n_spins(c_vac) == 9 * 15 - 20
+        @test montecarlo.n_complete_triangles(c_vac) ==
+              count(all(occ[j] for j in montecarlo.triangle_nodes(i, 9, 15))
+                    for i in CartesianIndices(c_vac))
     end
 
     @testset "Hamiltonians" begin
@@ -97,11 +109,12 @@ MPI.Init()
         end
 
         function energy_ref(θ, sim)
+            occ = sim.conf.occupied
             # The 0.5 accounts for each link between nodes being visited twice
             E = 0.5 * sum(J * cos(θ[i] - θ[j])
                  for i in CartesianIndices(sim.conf),
                      j in CartesianIndices(sim.conf)
-                 if j ∈ montecarlo.neighbors(i, L1, L2)
+                 if j ∈ montecarlo.neighbors(i, L1, L2) && occ[i] && occ[j]
             )
             if !isnothing(sim.V)
                 if sim.rkky_range_cutoff == 0
@@ -109,14 +122,16 @@ MPI.Init()
                              cos(θ[i] - θ[shift_p(i, Δi)] - sim.ϕ[Δi])
                              for i in CartesianIndices(sim.conf),
                                 Δi in CartesianIndices(sim.V)
-                             if Δi != CartesianIndex(0, 0))
+                             if Δi != CartesianIndex(0, 0) &&
+                                occ[i] && occ[shift_p(i, Δi)])
                 else
                     for r in 1:sim.rkky_range_cutoff
                         R = Val(r)
                         E += sum(sim.V[Δi] *
                                  cos(θ[i] - θ[shift_p(i, Δi)] - sim.ϕ[Δi])
                                  for i in CartesianIndices(sim.conf),
-                                    Δi in neighbor_shifts(R))
+                                    Δi in neighbor_shifts(R)
+                                 if occ[i] && occ[shift_p(i, Δi)])
                     end
                 end
             end
@@ -170,6 +185,64 @@ MPI.Init()
                     @show cov_chirality_long_spin_K(sim)
                     @show cov_chirality_trans_spin_K(sim)
                 end
+            end
+        end
+
+        @testset "Vacancies" begin
+            rank = MPI.Comm_rank(MPI.COMM_WORLD)
+
+            # An explicit all-occupied mask is equivalent to the default one
+            occ_full = random_occupation(L1, L2, 0, MersenneTwister(1))
+            for R in [0, 1, 2, 3]
+                conf1 = Configuration(L1, L2, MersenneTwister(123456 + rank))
+                conf2 = Configuration(L1, L2, MersenneTwister(123456 + rank),
+                                      occupied=occ_full)
+                sim1 = MCSimulation(conf1, MersenneTwister(42 + rank),
+                                    β=β, J=J, V=V, λ=λ, rkky_range_cutoff=R)
+                sim2 = MCSimulation(conf2, MersenneTwister(42 + rank),
+                                    β=β, J=J, V=V, λ=λ, rkky_range_cutoff=R)
+                @test sim1.energy == sim2.energy
+                @test sim1.eff_field == sim2.eff_field
+                run!(sim1, n_mcs=100, n_warmup_mcs=20, or_sweeps_per_mcs=1,
+                     show_progress=false)
+                run!(sim2, n_mcs=100, n_warmup_mcs=20, or_sweeps_per_mcs=1,
+                     show_progress=false)
+                @test sim1.conf.θ == sim2.conf.θ
+                @test sim1.energy == sim2.energy
+            end
+
+            # The same vacancy pattern on all ranks
+            occ = random_occupation(L1, L2, 20, MersenneTwister(654321))
+
+            # Energy bookkeeping and frozen vacant sites
+            rng = MersenneTwister(123456 + rank)
+            for R in [0, 1, 2, 3]
+                conf = Configuration(L1, L2, rng, occupied=occ)
+                θ_init = copy(conf.θ)
+                sim = MCSimulation(conf, rng, β=β, J=J, V=V, λ=λ, rkky_range_cutoff=R)
+                @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
+                run!(sim, n_mcs=1000, n_warmup_mcs=200, or_sweeps_per_mcs=1,
+                     show_progress=false)
+                @test sim.energy ≈ energy_ref(sim.conf.θ, sim)
+                @test sim.conf.θ[.!occ] == θ_init[.!occ]
+            end
+
+            # Normalization of measured chirality and magnetization
+            K = (4π / 3, 0)
+            for χ0 in (-1, 1)
+                conf = Configuration(L1, L2, χ0, occupied=occ)
+                sim = MCSimulation(conf, MersenneTwister(1), β=β, J=J, V=V, λ=λ)
+                montecarlo.measure!(sim)
+                @test sim.measurements.chirality_sums[1] ≈ χ0
+
+                magn_at_K_ref = zeros(ComplexF64, 2)
+                for i in CartesianIndices(conf)
+                    occ[i] || continue
+                    w = exp(-im * dot(K, l2p(i[1], i[2])))
+                    magn_at_K_ref .+= w .* (cos(conf[i]), sin(conf[i]))
+                end
+                magn_at_K_ref ./= count(occ)
+                @test sim.measurements.magnetization_at_K_sum ≈ magn_at_K_ref
             end
         end
     end

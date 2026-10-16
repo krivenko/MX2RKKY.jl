@@ -40,6 +40,14 @@ s = ArgParseSettings()
         help = "basic PRNG seed"
         arg_type = Int
         default = 128512
+    "--n_vacancies"
+        help = "number of vacant sites"
+        arg_type = Int
+        default = 0
+    "--disorder_seed"
+        help = "PRNG seed used to generate the vacancy pattern"
+        arg_type = Int
+        default = 0
 end
 
 parsed_args = parse_args(ARGS, s)
@@ -49,6 +57,8 @@ V = parsed_args["V"]
 rkky_range_cutoff = parsed_args["rkky_range_cutoff"]
 init_chi = parsed_args["init_chi"]
 seed = parsed_args["seed"]
+n_vacancies = parsed_args["n_vacancies"]
+disorder_seed = parsed_args["disorder_seed"]
 
 ## MPI
 
@@ -63,6 +73,8 @@ if rank == 0
     @show rkky_range_cutoff
     @show init_chi
     @show seed
+    @show n_vacancies
+    @show disorder_seed
 end
 
 ## Parameters
@@ -108,7 +120,11 @@ n_mcs = 1_000
 m_sweeps_per_mcs = 1
 or_sweeps_per_mcs = 1
 
-outfile = "RKKY_T_scan_V$(V)_lambda$(λ)_R$(rkky_range_cutoff)_L$(L)_init_chi$(init_chi).h5"
+outfile = "RKKY_T_scan_V$(V)_lambda$(λ)_R$(rkky_range_cutoff)_L$(L)_init_chi$(init_chi)" *
+          "_nvac$(n_vacancies)_dseed$(disorder_seed).h5"
+
+# Vacancy pattern (identical on all MPI ranks)
+occupied = random_occupation(L, L, n_vacancies, MersenneTwister(disorder_seed))
 
 # Save parameters
 if rank == 0
@@ -128,11 +144,14 @@ if rank == 0
         params["m_sweeps_per_mcs"] = m_sweeps_per_mcs
         params["or_sweeps_per_mcs"] = or_sweeps_per_mcs
         params["seed"] = seed
+        params["n_vacancies"] = n_vacancies
+        params["disorder_seed"] = disorder_seed
+        params["occupied"] = UInt8.(collect(occupied))
     end
 end
 
 rng = MersenneTwister(seed + 1000 * rank)
-conf = Configuration(L, L, init_chi)
+conf = Configuration(L, L, init_chi, occupied=occupied)
 
 total_time = 0.0
 for (n, T) in enumerate(T_range)

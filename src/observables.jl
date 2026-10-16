@@ -63,8 +63,7 @@ err_chirality(sim::MCSimulation) = var_chirality(sim) / sqrt(sim.measurements.co
 
 "Extract chiral susceptibility from a simulation structure."
 function susc_chirality(sim::MCSimulation)
-    L1, L2 = size(sim.conf)
-    return L1 * L2 * sim.β * var_chirality(sim) ^ 2
+    return sim.measurements.n_triangles * sim.β * var_chirality(sim) ^ 2
 end
 
 "Extract Binder cumulant of chirality from a simulation structure."
@@ -129,14 +128,12 @@ err_spin_K(sim::MCSimulation) = var_spin_K(sim) / sqrt(sim.measurements.count)
 
 "Extract K-point spin susceptibility from a simulation structure."
 function susc_spin_K(sim::MCSimulation)
-    L1, L2 = size(sim.conf)
-    return L1 * L2 * sim.β * var_spin_K(sim) ^ 2
+    return sim.measurements.n_spins * sim.β * var_spin_K(sim) ^ 2
 end
 
 "Extract K-point spin norm susceptibility from a simulation structure."
 function susc_norm_spin_K(sim::MCSimulation)
-    L1, L2 = size(sim.conf)
-    return L1 * L2 * sim.β * var_norm_spin_K(sim) ^ 2
+    return sim.measurements.n_spins * sim.β * var_norm_spin_K(sim) ^ 2
 end
 
 "Extract K-point spin Binder cumulant from a simulation structure."

@@ -14,23 +14,37 @@ using MX2RKKY.utility: clamp_angle
 using MX2RKKY.lattice: LatCoords, neighbor_shifts, periodize, neighbors, triangle_nodes, l2p
 using MX2RKKY.lattice: LatticeArray
 
-export Configuration, MCSimulation, run!
+export Configuration, random_occupation, MCSimulation, run!
 
 #
 # Configuration
 #
 
-"Configuration as an array of classical spins on a cluster"
+"Configuration as an array of classical spins on a cluster with possible vacancies"
 struct Configuration
     "Orientations of the spins θ ∈ [0; 2π)"
     θ::OffsetArray{Float64, 2}
+    "Occupation mask: `true` if a site hosts a spin, `false` if it is vacant"
+    occupied::OffsetArray{Bool, 2}
+
+    function Configuration(θ::OffsetArray{Float64, 2}, occupied::OffsetArray{Bool, 2})
+        @assert axes(θ) == axes(occupied) "Shapes of θ and occupied must match"
+        return new(θ, occupied)
+    end
+end
+
+"Make a configuration from an array of spin orientations with all sites occupied"
+function Configuration(θ::OffsetArray{Float64, 2})
+    return Configuration(θ, LatticeArray(i -> true, Bool, 1, size(θ)...))
 end
 
 """
 Make a configuration of spins corresponding to the 120° Néel state with a given chirality χ
 (either -1 or 1). Linear sizes of the configuration `L1` and `L2` must be multiples of 3.
+`occupied` is an optional occupation mask; by default, all sites are occupied.
 """
-function Configuration(L1::Int, L2::Int, χ::Int)
+function Configuration(L1::Int, L2::Int, χ::Int;
+                       occupied::Union{OffsetArray{Bool, 2}, Nothing} = nothing)
     @assert L1 > 0
     @assert L2 > 0
     @assert isodd(L1) && (L1 % 3 == 0) "L1 must be odd and a multiple of 3"
@@ -38,20 +52,37 @@ function Configuration(L1::Int, L2::Int, χ::Int)
     @assert χ ∈ (-1, 1)
     θ_pattern = (χ == -1) ? (π / 2, 7π / 6, 11π / 6) : (π / 2, 11π / 6, 7π / 6)
     θ = LatticeArray(i -> θ_pattern[(i[1] + i[2]) % 3 + 1], Float64, 1, L1, L2)
-    return Configuration(θ)
+    return isnothing(occupied) ? Configuration(θ) : Configuration(θ, occupied)
 end
 
 """
 Make a disordered configuration of spins with given linear sizes `L1` and `L2`.
 Both linear sizes must be multiples of 3.
 `rng` is the random number generator used to initialize components of the spins.
+`occupied` is an optional occupation mask; by default, all sites are occupied.
 """
-function Configuration(L1::Int, L2::Int, rng::AbstractRNG)
+function Configuration(L1::Int, L2::Int, rng::AbstractRNG;
+                       occupied::Union{OffsetArray{Bool, 2}, Nothing} = nothing)
     @assert L1 > 0
     @assert L2 > 0
     @assert isodd(L1) && (L1 % 3 == 0) "L1 must be odd and a multiple of 3"
     @assert isodd(L2) && (L2 % 3 == 0) "L2 must be odd and a multiple of 3"
-    return Configuration(LatticeArray(i -> 2π * rand(rng), Float64, 1, L1, L2))
+    θ = LatticeArray(i -> 2π * rand(rng), Float64, 1, L1, L2)
+    return isnothing(occupied) ? Configuration(θ) : Configuration(θ, occupied)
+end
+
+"""
+Make an occupation mask for a cluster with linear sizes `L1` and `L2` with exactly
+`n_vacancies` vacant sites chosen uniformly at random using the random number generator
+`rng`.
+"""
+function random_occupation(L1::Int, L2::Int, n_vacancies::Int, rng::AbstractRNG)
+    @assert 0 <= n_vacancies <= L1 * L2
+    occupied = LatticeArray(i -> true, Bool, 1, L1, L2)
+    for i in sample(rng, CartesianIndices(occupied), n_vacancies, replace=false)
+        occupied[i] = false
+    end
+    return occupied
 end
 
 "Extract linear sizes (L1, L2) of the cluster from a configuration"
@@ -68,11 +99,40 @@ function Base.setindex!(conf::Configuration, θ::Float64, i::LatCoords)
     conf.θ[i] = θ
 end
 
+"Check whether a given site of a configuration hosts a spin"
+isoccupied(conf::Configuration, i::LatCoords) = conf.occupied[i]
+
+"Number of spins (occupied sites) in a configuration"
+n_spins(conf::Configuration) = count(conf.occupied)
+
+"""
+Check whether all three nodes of an elementary triangle are occupied.
+
+The triangle is specified by the lattice coordinates of its lowest (having the smallest `y`
+coordinate) node.
+
+`conf` - spin configuration.
+`i` - lattice coordinates of the node.
+"""
+@inline function is_complete_triangle(conf::Configuration, i::LatCoords)
+    L1, L2 = size(conf)
+    for j in triangle_nodes(i, L1, L2)
+        conf.occupied[j] || return false
+    end
+    return true
+end
+
+"Number of elementary triangles with all three nodes occupied in a configuration"
+function n_complete_triangles(conf::Configuration)
+    return count(i -> is_complete_triangle(conf, i), CartesianIndices(conf))
+end
+
 """
 Compute chirality of a single triangle in a given configuration.
 
 The triangle is specified by the lattice coordinates of its lowest (having the smallest `y`
-coordinate) node.
+coordinate) node. The result is meaningful only if all three nodes of the triangle are
+occupied (see `is_complete_triangle()`).
 
 `conf` - spin configuration.
 `i` - lattice coordinates of the node.
@@ -108,6 +168,7 @@ neighbors.
     L1, L2 = size(conf)
     res = @MVector zeros(Float64, 2)
     for j in neighbors(i, L1, L2)
+        conf.occupied[j] || continue
         s, c = sincos(conf[j])
         res[1] += -J * c / 2
         res[2] += -J * s / 2
@@ -221,6 +282,7 @@ nodes.
     for Δi in CartesianIndices(V)
         (Δi == CartesianIndex(0, 0)) && continue # No self-interaction
         j = periodize(i + Δi, L1, L2)
+        conf.occupied[j] || continue
         s, c = sincos(conf[j] + ϕ[Δi])
         v = V[Δi]
         res[1] += -v * c
@@ -248,6 +310,7 @@ nodes within a given range `R`.
     for r in 1:R
         for Δi in neighbor_shifts(Val(r))
             j = periodize(i + Δi, L1, L2)
+            conf.occupied[j] || continue
             s, c = sincos(conf[j] + ϕ[Δi])
             v = V[Δi]
             res[1] += -v * c
@@ -328,6 +391,10 @@ end
 mutable struct Measurements
     "Number of measurements taken"
     count::Int
+    "Number of spins (occupied sites) in the cluster"
+    const n_spins::Int
+    "Number of elementary triangles with all three nodes occupied"
+    const n_triangles::Int
     "Encountered minimum of energy"
     energy_min::Float64
     "Powers of energy E, E^2, E^3, E^4 summed over MC samples"
@@ -374,6 +441,8 @@ mutable struct Measurements
             i -> exp(-im * dot(K, l2p(i[1], i[2]))), ComplexF64, 1, size(conf)...
         )
         return new(0,                       # count
+                   n_spins(conf),
+                   n_complete_triangles(conf),
                    Inf64,                   # energy_min
                    zeros(Float64, 4),       # energy_sums
                    zeros(ComplexF64, 2),    # magnetization_at_K_sum
@@ -479,8 +548,10 @@ function MCSimulation(init_conf::Configuration,
         end
     end
 
-    energy = -sum(cos.(init_conf.θ) .* eff_field[1, :, :] .+
-                  sin.(init_conf.θ) .* eff_field[2, :, :])
+    # Effective field is also computed (and later updated) at vacant sites, but it never
+    # contributes to the energy since vacant sites are never updated.
+    energy = -sum(init_conf.occupied .* (cos.(init_conf.θ) .* eff_field[1, :, :] .+
+                                         sin.(init_conf.θ) .* eff_field[2, :, :]))
 
     return MCSimulation(β, J,
                         enable_rkky ? Varr : nothing,
@@ -531,6 +602,7 @@ function run!(sim::MCSimulation;
         # Metropolis sweeps
         for sweep in 1:m_sweeps_per_mcs
             for i in CartesianIndices(sim.conf)
+                isoccupied(sim.conf, i) || continue
                 if propose!(m_update, i, sim) > rand(sim.rng, Float64)
                     accept!(m_update, sim)
                 end
@@ -540,6 +612,7 @@ function run!(sim::MCSimulation;
         # Overrelaxation sweeps
         for sweep in 1:or_sweeps_per_mcs
             for i in CartesianIndices(sim.conf)
+                isoccupied(sim.conf, i) || continue
                 overrelaxation!(i, sim)
             end
         end
@@ -629,9 +702,6 @@ end
 
 "Update measurement data"
 function measure!(sim::MCSimulation)
-    L1, L2 = size(sim.conf)
-    N = L1 * L2
-
     m = sim.measurements
     m.count += 1
 
@@ -647,11 +717,14 @@ function measure!(sim::MCSimulation)
 
     for i in CartesianIndices(sim.conf)
         # Chirality
-        χ_i = chirality(sim.conf, i)
-        χ += χ_i
-        χ_at_q_min += m.fourier_weights_at_q_min[i] * χ_i
+        if is_complete_triangle(sim.conf, i)
+            χ_i = chirality(sim.conf, i)
+            χ += χ_i
+            χ_at_q_min += m.fourier_weights_at_q_min[i] * χ_i
+        end
 
         # Magnetization
+        isoccupied(sim.conf, i) || continue
         magn_y_i, magn_x_i = sincos(sim.conf[i])
 
         magn .+= (magn_x_i, magn_y_i)
@@ -663,10 +736,10 @@ function measure!(sim::MCSimulation)
         magn_at_K_q_min .+= w_at_K_q_min .* (magn_x_i, magn_y_i)
     end
 
-    χ /= N
-    χ_at_q_min /= N
-    magn_at_K ./= N
-    magn_at_K_q_min ./= N
+    χ /= m.n_triangles
+    χ_at_q_min /= m.n_triangles
+    magn_at_K ./= m.n_spins
+    magn_at_K_q_min ./= m.n_spins
 
     m.chirality_sums .+= χ .^ (1:4)
     m.chirality_at_q_min_2_sum += abs(χ_at_q_min) ^ 2
