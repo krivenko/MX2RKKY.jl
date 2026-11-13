@@ -72,7 +72,7 @@ function binder_chirality(sim::MCSimulation)
     m = sim.measurements
     χ2_avg = m.chirality_sums[2] / m.count
     χ4_avg = m.chirality_sums[4] / m.count
-    return 3 / 2 * (1 - χ4_avg / (2 * χ2_avg ^ 2))
+    return 3 / 2 * (1 - χ4_avg / (3 * χ2_avg ^ 2))
 end
 
 "Extract correlation length of chirality from a simulation structure."
