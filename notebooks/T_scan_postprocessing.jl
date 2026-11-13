@@ -302,7 +302,7 @@ function make_disorder_averaged_df(ars)
         insertcols!(df, name => values, error_name => errors)
     end
 
-    binder_chi(chi2, chi4) = 3 / 2 * (1 - chi4 / (2 * chi2 ^ 2))
+    binder_chi(chi2, chi4) = 3 / 2 * (1 - chi4 / (3 * chi2 ^ 2))
     binder_spin(m2, m4) = 2.0 - m4 / m2 ^ 2
     corr_length(a2, a_q_min_2) = abs(sqrt(complex(a2 / a_q_min_2 - 1))) / (2 * sin(π / L))
 
